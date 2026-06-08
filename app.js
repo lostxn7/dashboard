@@ -55,10 +55,12 @@ let settings = {
   goal: 5000
 };
 
+let currentMode = "single";
 let monthlyChart;
 let unsubscribers = [];
 let savingTransaction = false;
 let savingStock = false;
+let batchRows = [];
 
 const months = [
   "Janeiro",
@@ -82,6 +84,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupModals();
   setupForms();
   setupFeePreview();
+  setupBatchMode();
   listenAuth();
 });
 
@@ -253,9 +256,19 @@ function setupFilters() {
 
 function setupModals() {
   $("#open-transaction-modal").addEventListener("click", () => {
-    $("#tr-date").value = new Date().toISOString().slice(0, 10);
+    const today = new Date().toISOString().slice(0, 10);
+
+    $("#tr-date").value = today;
+    $("#batch-date").value = today;
+
+    if (!batchRows.length) {
+      addBatchRow("Conta 3M Cash", 18.90);
+      addBatchRow("Conta 2M Cash", 8.90);
+    }
+
     $("#transaction-modal").showModal();
     updateFeePreview();
+    renderBatchRows();
   });
 
   $("#open-stock-modal").addEventListener("click", () => {
@@ -263,10 +276,14 @@ function setupModals() {
   });
 
   $("#quick-investment").addEventListener("click", () => {
+    setMode("single");
+
     $("#tr-type").value = "despesa";
     $("#tr-category").value = "Investimento";
-    $("#tr-fee-percent").value = "";
+    $("#tr-ad-fee-percent").value = "0";
+    $("#tr-plan-fee-percent").value = "0";
     $("#tr-date").value = new Date().toISOString().slice(0, 10);
+
     $("#transaction-modal").showModal();
     updateFeePreview();
   });
@@ -280,27 +297,155 @@ function setupModals() {
 
 function setupFeePreview() {
   $("#tr-gross-value").addEventListener("input", updateFeePreview);
-  $("#tr-fee-percent").addEventListener("input", updateFeePreview);
+  $("#tr-ad-fee-percent").addEventListener("input", updateFeePreview);
+  $("#tr-plan-fee-percent").addEventListener("input", updateFeePreview);
   $("#tr-type").addEventListener("change", updateFeePreview);
+}
+
+function setupBatchMode() {
+  $$(".mode-tab").forEach((button) => {
+    button.addEventListener("click", () => {
+      setMode(button.dataset.mode);
+    });
+  });
+
+  $("#add-sale-row").addEventListener("click", () => {
+    addBatchRow("", 0);
+    renderBatchRows();
+  });
+
+  $("#batch-sales-list").addEventListener("input", (event) => {
+    const row = event.target.closest("[data-row-id]");
+    if (!row) return;
+
+    const rowId = row.dataset.rowId;
+    const item = batchRows.find((sale) => sale.id === rowId);
+
+    if (!item) return;
+
+    if (event.target.dataset.field === "desc") {
+      item.desc = event.target.value;
+    }
+
+    if (event.target.dataset.field === "grossValue") {
+      item.grossValue = Number(event.target.value || 0);
+    }
+
+    updateBatchTotal();
+  });
+
+  $("#batch-sales-list").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-remove-row]");
+    if (!button) return;
+
+    batchRows = batchRows.filter((sale) => sale.id !== button.dataset.removeRow);
+
+    if (!batchRows.length) {
+      addBatchRow("", 0);
+    }
+
+    renderBatchRows();
+  });
+
+  $("#batch-ad-fee-percent").addEventListener("input", updateBatchTotal);
+  $("#batch-plan-fee-percent").addEventListener("input", updateBatchTotal);
+}
+
+function setMode(mode) {
+  currentMode = mode;
+
+  $$(".mode-tab").forEach((button) => {
+    button.classList.toggle("active", button.dataset.mode === mode);
+  });
+
+  $("#single-mode").classList.toggle("hidden", mode !== "single");
+  $("#batch-mode").classList.toggle("hidden", mode !== "batch");
+
+  $("#save-transaction-btn").textContent = mode === "batch" ? "Salvar todas as vendas" : "Salvar movimentação";
+}
+
+function addBatchRow(desc = "", grossValue = 0) {
+  batchRows.push({
+    id: crypto.randomUUID(),
+    desc,
+    grossValue
+  });
+}
+
+function renderBatchRows() {
+  const list = $("#batch-sales-list");
+
+  list.innerHTML = batchRows.map((row, index) => `
+    <div class="batch-row" data-row-id="${row.id}">
+      <label>
+        Descrição da venda ${index + 1}
+        <input data-field="desc" value="${escapeHTML(row.desc)}" placeholder="Ex: Conta 3M Cash" />
+      </label>
+
+      <label>
+        Valor bruto
+        <input data-field="grossValue" type="number" step="0.01" min="0" value="${row.grossValue || ""}" placeholder="18.90" />
+      </label>
+
+      <button type="button" class="icon-btn" data-remove-row="${row.id}" title="Remover linha">
+        ×
+      </button>
+    </div>
+  `).join("");
+
+  updateBatchTotal();
+}
+
+function calculateFee(grossValue, adFeePercent, planFeePercent) {
+  const totalFeePercent = Number(adFeePercent || 0) + Number(planFeePercent || 0);
+  const feeValue = Number(grossValue || 0) * (totalFeePercent / 100);
+  const netValue = Math.max(Number(grossValue || 0) - feeValue, 0);
+
+  return {
+    totalFeePercent,
+    feeValue,
+    netValue
+  };
 }
 
 function updateFeePreview() {
   const type = $("#tr-type").value;
   const grossValue = Number($("#tr-gross-value").value || 0);
-  const feePercent = type === "receita" ? Number($("#tr-fee-percent").value || 0) : 0;
-  const feeValue = grossValue * (feePercent / 100);
-  const netValue = Math.max(grossValue - feeValue, 0);
+  const adFeePercent = type === "receita" ? Number($("#tr-ad-fee-percent").value || 0) : 0;
+  const planFeePercent = type === "receita" ? Number($("#tr-plan-fee-percent").value || 0) : 0;
+  const result = calculateFee(grossValue, adFeePercent, planFeePercent);
 
-  $("#fee-value-preview").textContent = money(feeValue);
-  $("#net-value-preview").textContent = money(type === "receita" ? netValue : grossValue);
+  $("#total-fee-percent-preview").textContent = percent(result.totalFeePercent);
+  $("#fee-value-preview").textContent = money(type === "receita" ? result.feeValue : 0);
+  $("#net-value-preview").textContent = money(type === "receita" ? result.netValue : grossValue);
 
-  if (type === "despesa") {
-    $("#fee-field").style.opacity = ".45";
-    $("#tr-fee-percent").disabled = true;
-  } else {
-    $("#fee-field").style.opacity = "1";
-    $("#tr-fee-percent").disabled = false;
-  }
+  const disabled = type === "despesa";
+
+  $("#ad-fee-field").style.opacity = disabled ? ".45" : "1";
+  $("#plan-fee-field").style.opacity = disabled ? ".45" : "1";
+  $("#tr-ad-fee-percent").disabled = disabled;
+  $("#tr-plan-fee-percent").disabled = disabled;
+}
+
+function updateBatchTotal() {
+  const adFeePercent = Number($("#batch-ad-fee-percent").value || 0);
+  const planFeePercent = Number($("#batch-plan-fee-percent").value || 0);
+
+  let gross = 0;
+  let fees = 0;
+  let net = 0;
+
+  batchRows.forEach((row) => {
+    const result = calculateFee(row.grossValue, adFeePercent, planFeePercent);
+
+    gross += Number(row.grossValue || 0);
+    fees += result.feeValue;
+    net += result.netValue;
+  });
+
+  $("#batch-total-gross").textContent = money(gross);
+  $("#batch-total-fees").textContent = money(fees);
+  $("#batch-total-net").textContent = money(net);
 }
 
 function setupForms() {
@@ -312,37 +457,39 @@ function setupForms() {
     savingTransaction = true;
     const saveButton = $("#save-transaction-btn");
     saveButton.disabled = true;
-    saveButton.textContent = "Salvando...";
+    saveButton.textContent = currentMode === "batch" ? "Salvando vendas..." : "Salvando...";
 
     try {
-      const type = $("#tr-type").value;
-      const grossValue = Number($("#tr-gross-value").value || 0);
-      const feePercent = type === "receita" ? Number($("#tr-fee-percent").value || 0) : 0;
-      const feeValue = type === "receita" ? grossValue * (feePercent / 100) : 0;
-      const netValue = type === "receita" ? Math.max(grossValue - feeValue, 0) : grossValue;
-
-      await addDoc(collection(db, "transactions"), {
-        type,
-        category: $("#tr-category").value,
-        desc: $("#tr-desc").value.trim(),
-        grossValue,
-        feePercent,
-        feeValue,
-        value: netValue,
-        date: $("#tr-date").value,
-        createdAt: serverTimestamp()
-      });
+      if (currentMode === "batch") {
+        await saveBatchSales();
+      } else {
+        await saveSingleTransaction();
+      }
 
       event.target.reset();
       $("#transaction-modal").close();
+
+      const today = new Date().toISOString().slice(0, 10);
+      $("#tr-date").value = today;
+      $("#batch-date").value = today;
+      $("#tr-ad-fee-percent").value = "12.99";
+      $("#tr-plan-fee-percent").value = "2.99";
+      $("#batch-ad-fee-percent").value = "12.99";
+      $("#batch-plan-fee-percent").value = "2.99";
+
+      batchRows = [];
+      addBatchRow("Conta 3M Cash", 18.90);
+      addBatchRow("Conta 2M Cash", 8.90);
+
       updateFeePreview();
+      renderBatchRows();
     } catch (error) {
       console.error(error);
       alert("Erro ao salvar movimentação.");
     } finally {
       savingTransaction = false;
       saveButton.disabled = false;
-      saveButton.textContent = "Salvar movimentação";
+      saveButton.textContent = currentMode === "batch" ? "Salvar todas as vendas" : "Salvar movimentação";
     }
   });
 
@@ -440,6 +587,78 @@ function setupForms() {
 
     alert("Configurações salvas!");
   });
+}
+
+async function saveSingleTransaction() {
+  const type = $("#tr-type").value;
+  const grossValue = Number($("#tr-gross-value").value || 0);
+  const adFeePercent = type === "receita" ? Number($("#tr-ad-fee-percent").value || 0) : 0;
+  const planFeePercent = type === "receita" ? Number($("#tr-plan-fee-percent").value || 0) : 0;
+  const result = calculateFee(grossValue, adFeePercent, planFeePercent);
+  const netValue = type === "receita" ? result.netValue : grossValue;
+  const feeValue = type === "receita" ? result.feeValue : 0;
+  const totalFeePercent = type === "receita" ? result.totalFeePercent : 0;
+
+  if (!$("#tr-desc").value.trim()) {
+    alert("Preencha a descrição.");
+    return;
+  }
+
+  if (!grossValue) {
+    alert("Preencha o valor bruto.");
+    return;
+  }
+
+  await addDoc(collection(db, "transactions"), {
+    type,
+    category: $("#tr-category").value,
+    desc: $("#tr-desc").value.trim(),
+    grossValue,
+    adFeePercent,
+    planFeePercent,
+    totalFeePercent,
+    feeValue,
+    value: netValue,
+    date: $("#tr-date").value,
+    createdAt: serverTimestamp()
+  });
+}
+
+async function saveBatchSales() {
+  const validRows = batchRows.filter((row) => {
+    return row.desc.trim() && Number(row.grossValue || 0) > 0;
+  });
+
+  if (!validRows.length) {
+    alert("Adicione pelo menos uma venda válida.");
+    return;
+  }
+
+  const date = $("#batch-date").value;
+  const category = $("#batch-category").value;
+  const adFeePercent = Number($("#batch-ad-fee-percent").value || 0);
+  const planFeePercent = Number($("#batch-plan-fee-percent").value || 0);
+
+  const promises = validRows.map((row) => {
+    const grossValue = Number(row.grossValue || 0);
+    const result = calculateFee(grossValue, adFeePercent, planFeePercent);
+
+    return addDoc(collection(db, "transactions"), {
+      type: "receita",
+      category,
+      desc: row.desc.trim(),
+      grossValue,
+      adFeePercent,
+      planFeePercent,
+      totalFeePercent: result.totalFeePercent,
+      feeValue: result.feeValue,
+      value: result.netValue,
+      date,
+      createdAt: serverTimestamp()
+    });
+  });
+
+  await Promise.all(promises);
 }
 
 async function deleteCollection(collectionName) {
@@ -618,7 +837,9 @@ function renderFaturamento() {
     const grossValue = getGrossValue(item);
     const feeValue = getFeeValue(item);
     const netValue = getNetValue(item);
-    const feePercent = Number(item.feePercent || 0);
+    const adFeePercent = Number(item.adFeePercent || 0);
+    const planFeePercent = Number(item.planFeePercent || 0);
+    const totalFeePercent = Number(item.totalFeePercent || item.feePercent || 0);
 
     return `
       <div class="item-row">
@@ -628,7 +849,10 @@ function renderFaturamento() {
 
           <div class="meta-line">
             <span>Bruto: ${money(grossValue)}</span>
-            <span>Taxa: ${money(feeValue)} ${feePercent ? `(${feePercent}%)` : ""}</span>
+            <span>Taxa anúncio: ${percent(adFeePercent)}</span>
+            <span>Taxa plano: ${percent(planFeePercent)}</span>
+            <span>Total: ${percent(totalFeePercent)}</span>
+            <span>Desconto: ${money(feeValue)}</span>
             <span>Líquido: ${money(netValue)}</span>
           </div>
         </div>
@@ -637,9 +861,7 @@ function renderFaturamento() {
           ${item.type}
         </span>
 
-        <strong>
-          ${money(netValue)}
-        </strong>
+        <strong>${money(netValue)}</strong>
 
         <button class="icon-btn" data-delete-transaction="${item.id}" title="Excluir movimentação">
           ×
@@ -696,9 +918,7 @@ function renderStock() {
 
       <div>
         <small>Lucro previsto</small>
-        <strong>
-          ${money(Number(item.price || 0) - Number(item.cost || 0))}
-        </strong>
+        <strong>${money(Number(item.price || 0) - Number(item.cost || 0))}</strong>
       </div>
 
       <button class="icon-btn" data-delete-stock="${item.id}" title="Excluir item">
@@ -807,20 +1027,7 @@ function renderChart() {
   monthlyChart = new Chart(canvas, {
     type: "line",
     data: {
-      labels: [
-        "Jan",
-        "Fev",
-        "Mar",
-        "Abr",
-        "Mai",
-        "Jun",
-        "Jul",
-        "Ago",
-        "Set",
-        "Out",
-        "Nov",
-        "Dez"
-      ],
+      labels: ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"],
       datasets: [
         {
           label: "Receitas líquidas",
@@ -874,7 +1081,6 @@ function renderChart() {
 
 function formatDate(dateString) {
   if (!dateString) return "";
-
   return new Date(`${dateString}T00:00:00`).toLocaleDateString("pt-BR");
 }
 

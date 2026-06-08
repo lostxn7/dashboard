@@ -10,7 +10,6 @@
   --soft: #d7d7d7;
   --white: #ffffff;
   --danger: #ff5c5c;
-  --success: #ffffff;
   --shadow: 0 24px 80px rgba(0, 0, 0, .42);
 }
 
@@ -623,7 +622,14 @@ textarea {
   color: var(--muted);
 }
 
-.fee-preview {
+.fee-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.fee-preview,
+.batch-total {
   display: grid;
   gap: 8px;
   padding: 13px;
@@ -633,18 +639,23 @@ textarea {
   color: var(--muted);
 }
 
-.fee-preview b {
+.fee-preview b,
+.batch-total b {
   color: #fff;
 }
 
 .modal {
-  width: min(520px, 92vw);
+  width: min(540px, 92vw);
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 24px;
   background: rgba(13,13,13,.94);
   box-shadow: 0 30px 90px rgba(0,0,0,.7);
   backdrop-filter: blur(18px);
+}
+
+.wide-modal {
+  width: min(920px, 94vw);
 }
 
 .modal::backdrop {
@@ -667,6 +678,11 @@ textarea {
   margin: 0;
 }
 
+.modal-head p {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+
 .close {
   width: 38px;
   height: 38px;
@@ -676,6 +692,60 @@ textarea {
   background: rgba(255,255,255,.06);
   cursor: pointer;
   font-size: 22px;
+}
+
+.mode-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.mode-tab {
+  border: 1px solid var(--border);
+  color: var(--muted);
+  background: rgba(255,255,255,.035);
+  border-radius: 14px;
+  padding: 12px;
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.mode-tab.active {
+  background: #fff;
+  color: #050505;
+}
+
+.batch-config {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+
+.batch-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.batch-head h3 {
+  margin: 0;
+}
+
+.batch-sales-list {
+  display: grid;
+  gap: 10px;
+}
+
+.batch-row {
+  display: grid;
+  grid-template-columns: 1.5fr .8fr auto;
+  gap: 10px;
+  align-items: end;
+  padding: 12px;
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,.032);
 }
 
 canvas {
@@ -691,6 +761,10 @@ canvas {
 
   .grid.two {
     grid-template-columns: 1fr;
+  }
+
+  .batch-config {
+    grid-template-columns: 1fr 1fr;
   }
 }
 
@@ -719,12 +793,16 @@ canvas {
   .cards.four,
   .cards.three,
   .cards.six,
-  .mini-grid {
+  .mini-grid,
+  .fee-grid,
+  .batch-config,
+  .mode-tabs {
     grid-template-columns: 1fr;
   }
 
   .stock-row,
-  .item-row {
+  .item-row,
+  .batch-row {
     grid-template-columns: 1fr;
   }
 }

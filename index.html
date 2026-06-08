@@ -18,13 +18,9 @@
       <h1>Dashboard privado</h1>
       <p>Entre com uma conta Google autorizada para acessar seu painel.</p>
 
-      <button id="google-login" class="primary full">
-        Entrar com Google
-      </button>
+      <button id="google-login" class="primary full">Entrar com Google</button>
 
-      <small id="login-status">
-        Somente emails permitidos podem acessar.
-      </small>
+      <small id="login-status">Somente emails permitidos podem acessar.</small>
     </div>
   </section>
 
@@ -416,59 +412,123 @@
     </main>
   </div>
 
-  <dialog id="transaction-modal" class="modal">
+  <dialog id="transaction-modal" class="modal wide-modal">
     <form method="dialog" id="transaction-form">
       <div class="modal-head">
-        <h2>Nova Movimentação</h2>
+        <div>
+          <h2>Nova Movimentação</h2>
+          <p>Adicione uma venda ou várias vendas de uma vez.</p>
+        </div>
+
         <button type="button" class="close" data-close="transaction-modal">×</button>
       </div>
 
-      <label>
-        Tipo
-        <select id="tr-type" required>
-          <option value="receita">Receita</option>
-          <option value="despesa">Despesa</option>
-        </select>
-      </label>
-
-      <label>
-        Categoria
-        <select id="tr-category" required>
-          <option>Jailbreak</option>
-          <option>Steal a Brainrot</option>
-          <option>MM2</option>
-          <option>Conta Roblox</option>
-          <option>Investimento</option>
-          <option>GGMAX</option>
-          <option>PlayerAuctions</option>
-          <option>Outro</option>
-        </select>
-      </label>
-
-      <label>
-        Descrição
-        <input id="tr-desc" placeholder="Ex: Conta Jailbreak 1M vendida" required />
-      </label>
-
-      <label>
-        Valor bruto
-        <input id="tr-gross-value" type="number" step="0.01" min="0" placeholder="9.90" required />
-      </label>
-
-      <label id="fee-field">
-        Taxa da plataforma (%)
-        <input id="tr-fee-percent" type="number" step="0.01" min="0" placeholder="Ex: 10" />
-      </label>
-
-      <div class="fee-preview">
-        <span>Taxa descontada: <b id="fee-value-preview">R$ 0,00</b></span>
-        <span>Valor líquido: <b id="net-value-preview">R$ 0,00</b></span>
+      <div class="mode-tabs">
+        <button type="button" class="mode-tab active" data-mode="single">Uma movimentação</button>
+        <button type="button" class="mode-tab" data-mode="batch">Várias vendas</button>
       </div>
 
-      <label>
-        Data
-        <input id="tr-date" type="date" required />
-      </label>
+      <div id="single-mode">
+        <label>
+          Tipo
+          <select id="tr-type" required>
+            <option value="receita">Receita</option>
+            <option value="despesa">Despesa</option>
+          </select>
+        </label>
+
+        <label>
+          Categoria
+          <select id="tr-category" required>
+            <option>Jailbreak</option>
+            <option>Steal a Brainrot</option>
+            <option>MM2</option>
+            <option>Conta Roblox</option>
+            <option>Investimento</option>
+            <option>GGMAX</option>
+            <option>PlayerAuctions</option>
+            <option>Outro</option>
+          </select>
+        </label>
+
+        <label>
+          Descrição
+          <input id="tr-desc" placeholder="Ex: Conta Jailbreak 3M vendida" />
+        </label>
+
+        <label>
+          Valor bruto
+          <input id="tr-gross-value" type="number" step="0.01" min="0" placeholder="18.90" />
+        </label>
+
+        <div class="fee-grid">
+          <label id="ad-fee-field">
+            Taxa do anúncio (%)
+            <input id="tr-ad-fee-percent" type="number" step="0.01" min="0" value="12.99" />
+          </label>
+
+          <label id="plan-fee-field">
+            Taxa do plano (%)
+            <input id="tr-plan-fee-percent" type="number" step="0.01" min="0" value="2.99" />
+          </label>
+        </div>
+
+        <div class="fee-preview">
+          <span>Taxa total: <b id="total-fee-percent-preview">15.98%</b></span>
+          <span>Taxa descontada: <b id="fee-value-preview">R$ 0,00</b></span>
+          <span>Valor líquido: <b id="net-value-preview">R$ 0,00</b></span>
+        </div>
+
+        <label>
+          Data
+          <input id="tr-date" type="date" />
+        </label>
+      </div>
+
+      <div id="batch-mode" class="hidden">
+        <div class="batch-config">
+          <label>
+            Data das vendas
+            <input id="batch-date" type="date" />
+          </label>
+
+          <label>
+            Categoria padrão
+            <select id="batch-category">
+              <option>Jailbreak</option>
+              <option>Steal a Brainrot</option>
+              <option>MM2</option>
+              <option>Conta Roblox</option>
+              <option>GGMAX</option>
+              <option>PlayerAuctions</option>
+              <option>Outro</option>
+            </select>
+          </label>
+
+          <label>
+            Taxa anúncio (%)
+            <input id="batch-ad-fee-percent" type="number" step="0.01" min="0" value="12.99" />
+          </label>
+
+          <label>
+            Taxa plano (%)
+            <input id="batch-plan-fee-percent" type="number" step="0.01" min="0" value="2.99" />
+          </label>
+        </div>
+
+        <div class="batch-head">
+          <h3>Vendas do dia</h3>
+          <button type="button" class="ghost" id="add-sale-row">+ Adicionar venda</button>
+        </div>
+
+        <div id="batch-sales-list" class="batch-sales-list"></div>
+
+        <div class="batch-total">
+          <span>Bruto: <b id="batch-total-gross">R$ 0,00</b></span>
+          <span>Taxas: <b id="batch-total-fees">R$ 0,00</b></span>
+          <span>Líquido: <b id="batch-total-net">R$ 0,00</b></span>
+        </div>
+      </div>
 
       <button class="primary full" id="save-transaction-btn" type="submit">
         Salvar movimentação
