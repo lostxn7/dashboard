@@ -51,12 +51,14 @@ let transactions = [];
 let stock = [];
 let notes = [];
 let settings = {
-  name: "Lost Dashboard",
+  name: "JH Store",
   goal: 5000
 };
 
 let monthlyChart;
 let unsubscribers = [];
+let savingTransaction = false;
+let savingStock = false;
 
 const months = [
   "Janeiro",
@@ -79,6 +81,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupFilters();
   setupModals();
   setupForms();
+  setupFeePreview();
   listenAuth();
 });
 
@@ -117,7 +120,7 @@ function listenAuth() {
     }
 
     $("#user-email").textContent = user.email;
-    $("#welcome-title").textContent = `Olá, ${user.displayName || "Lost"} 👋`;
+    $("#welcome-title").textContent = `Olá, ${user.displayName || "JH Store"} 👋`;
 
     showApp();
 
@@ -156,7 +159,7 @@ async function ensureDefaultSettings() {
 
   if (!snap.exists()) {
     await setDoc(settingsRef, {
-      name: "Lost Dashboard",
+      name: "JH Store",
       goal: 5000,
       updatedAt: serverTimestamp()
     });
@@ -198,7 +201,7 @@ function startFirestoreListeners() {
   unsubscribers.push(onSnapshot(doc(db, "settings", "main"), (snapshot) => {
     if (snapshot.exists()) {
       settings = {
-        name: snapshot.data().name || "Lost Dashboard",
+        name: snapshot.data().name || "JH Store",
         goal: Number(snapshot.data().goal || 5000)
       };
 
@@ -252,6 +255,7 @@ function setupModals() {
   $("#open-transaction-modal").addEventListener("click", () => {
     $("#tr-date").value = new Date().toISOString().slice(0, 10);
     $("#transaction-modal").showModal();
+    updateFeePreview();
   });
 
   $("#open-stock-modal").addEventListener("click", () => {
@@ -261,8 +265,10 @@ function setupModals() {
   $("#quick-investment").addEventListener("click", () => {
     $("#tr-type").value = "despesa";
     $("#tr-category").value = "Investimento";
+    $("#tr-fee-percent").value = "";
     $("#tr-date").value = new Date().toISOString().slice(0, 10);
     $("#transaction-modal").showModal();
+    updateFeePreview();
   });
 
   $$("[data-close]").forEach((button) => {
@@ -272,37 +278,104 @@ function setupModals() {
   });
 }
 
+function setupFeePreview() {
+  $("#tr-gross-value").addEventListener("input", updateFeePreview);
+  $("#tr-fee-percent").addEventListener("input", updateFeePreview);
+  $("#tr-type").addEventListener("change", updateFeePreview);
+}
+
+function updateFeePreview() {
+  const type = $("#tr-type").value;
+  const grossValue = Number($("#tr-gross-value").value || 0);
+  const feePercent = type === "receita" ? Number($("#tr-fee-percent").value || 0) : 0;
+  const feeValue = grossValue * (feePercent / 100);
+  const netValue = Math.max(grossValue - feeValue, 0);
+
+  $("#fee-value-preview").textContent = money(feeValue);
+  $("#net-value-preview").textContent = money(type === "receita" ? netValue : grossValue);
+
+  if (type === "despesa") {
+    $("#fee-field").style.opacity = ".45";
+    $("#tr-fee-percent").disabled = true;
+  } else {
+    $("#fee-field").style.opacity = "1";
+    $("#tr-fee-percent").disabled = false;
+  }
+}
+
 function setupForms() {
   $("#transaction-form").addEventListener("submit", async (event) => {
     event.preventDefault();
 
-    await addDoc(collection(db, "transactions"), {
-      type: $("#tr-type").value,
-      category: $("#tr-category").value,
-      desc: $("#tr-desc").value.trim(),
-      value: Number($("#tr-value").value),
-      date: $("#tr-date").value,
-      createdAt: serverTimestamp()
-    });
+    if (savingTransaction) return;
 
-    event.target.reset();
-    $("#transaction-modal").close();
+    savingTransaction = true;
+    const saveButton = $("#save-transaction-btn");
+    saveButton.disabled = true;
+    saveButton.textContent = "Salvando...";
+
+    try {
+      const type = $("#tr-type").value;
+      const grossValue = Number($("#tr-gross-value").value || 0);
+      const feePercent = type === "receita" ? Number($("#tr-fee-percent").value || 0) : 0;
+      const feeValue = type === "receita" ? grossValue * (feePercent / 100) : 0;
+      const netValue = type === "receita" ? Math.max(grossValue - feeValue, 0) : grossValue;
+
+      await addDoc(collection(db, "transactions"), {
+        type,
+        category: $("#tr-category").value,
+        desc: $("#tr-desc").value.trim(),
+        grossValue,
+        feePercent,
+        feeValue,
+        value: netValue,
+        date: $("#tr-date").value,
+        createdAt: serverTimestamp()
+      });
+
+      event.target.reset();
+      $("#transaction-modal").close();
+      updateFeePreview();
+    } catch (error) {
+      console.error(error);
+      alert("Erro ao salvar movimentação.");
+    } finally {
+      savingTransaction = false;
+      saveButton.disabled = false;
+      saveButton.textContent = "Salvar movimentação";
+    }
   });
 
   $("#stock-form").addEventListener("submit", async (event) => {
     event.preventDefault();
 
-    await addDoc(collection(db, "stock"), {
-      name: $("#stock-name").value.trim(),
-      game: $("#stock-game").value,
-      cost: Number($("#stock-cost").value || 0),
-      price: Number($("#stock-price").value || 0),
-      status: $("#stock-status").value,
-      createdAt: serverTimestamp()
-    });
+    if (savingStock) return;
 
-    event.target.reset();
-    $("#stock-modal").close();
+    savingStock = true;
+    const saveButton = $("#save-stock-btn");
+    saveButton.disabled = true;
+    saveButton.textContent = "Salvando...";
+
+    try {
+      await addDoc(collection(db, "stock"), {
+        name: $("#stock-name").value.trim(),
+        game: $("#stock-game").value,
+        cost: Number($("#stock-cost").value || 0),
+        price: Number($("#stock-price").value || 0),
+        status: $("#stock-status").value,
+        createdAt: serverTimestamp()
+      });
+
+      event.target.reset();
+      $("#stock-modal").close();
+    } catch (error) {
+      console.error(error);
+      alert("Erro ao salvar item.");
+    } finally {
+      savingStock = false;
+      saveButton.disabled = false;
+      saveButton.textContent = "Salvar item";
+    }
   });
 
   $("#add-note").addEventListener("click", async () => {
@@ -323,7 +396,7 @@ function setupForms() {
   });
 
   $("#clear-transactions").addEventListener("click", async () => {
-    if (!confirm("Tem certeza que deseja apagar todas as movimentações?")) return;
+    if (!confirm("Tem certeza que deseja apagar TODAS as movimentações?")) return;
     await deleteCollection("transactions");
   });
 
@@ -332,13 +405,35 @@ function setupForms() {
     await deleteCollection("stock");
   });
 
+  $("#transaction-list").addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-delete-transaction]");
+    if (!button) return;
+
+    const id = button.dataset.deleteTransaction;
+
+    if (!confirm("Excluir somente essa movimentação?")) return;
+
+    await deleteDoc(doc(db, "transactions", id));
+  });
+
+  $("#stock-list").addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-delete-stock]");
+    if (!button) return;
+
+    const id = button.dataset.deleteStock;
+
+    if (!confirm("Excluir somente esse item do estoque?")) return;
+
+    await deleteDoc(doc(db, "stock", id));
+  });
+
   $("#goal-select").addEventListener("change", async () => {
     settings.goal = Number($("#goal-select").value);
     await saveSettings();
   });
 
   $("#save-settings").addEventListener("click", async () => {
-    settings.name = $("#setting-name").value.trim() || "Lost Dashboard";
+    settings.name = $("#setting-name").value.trim() || "JH Store";
     settings.goal = Number($("#setting-goal").value || 5000);
 
     await saveSettings();
@@ -359,7 +454,7 @@ async function deleteCollection(collectionName) {
 
 async function saveSettings() {
   await setDoc(doc(db, "settings", "main"), {
-    name: settings.name || "Lost Dashboard",
+    name: settings.name || "JH Store",
     goal: Number(settings.goal || 5000),
     updatedAt: serverTimestamp()
   }, {
@@ -384,14 +479,34 @@ function setupSettingsValues() {
   goalSelect.value = goalValue;
 }
 
+function getNetValue(item) {
+  return Number(item.value ?? item.netValue ?? item.grossValue ?? 0);
+}
+
+function getGrossValue(item) {
+  return Number(item.grossValue ?? item.value ?? 0);
+}
+
+function getFeeValue(item) {
+  return Number(item.feeValue ?? 0);
+}
+
 function totals(list = transactions) {
   const receitas = list
     .filter((item) => item.type === "receita")
-    .reduce((sum, item) => sum + Number(item.value || 0), 0);
+    .reduce((sum, item) => sum + getNetValue(item), 0);
+
+  const receitasBrutas = list
+    .filter((item) => item.type === "receita")
+    .reduce((sum, item) => sum + getGrossValue(item), 0);
+
+  const taxas = list
+    .filter((item) => item.type === "receita")
+    .reduce((sum, item) => sum + getFeeValue(item), 0);
 
   const despesas = list
     .filter((item) => item.type === "despesa")
-    .reduce((sum, item) => sum + Number(item.value || 0), 0);
+    .reduce((sum, item) => sum + getNetValue(item), 0);
 
   const vendas = list.filter((item) => item.type === "receita").length;
   const lucro = receitas - despesas;
@@ -401,6 +516,8 @@ function totals(list = transactions) {
 
   return {
     receitas,
+    receitasBrutas,
+    taxas,
     despesas,
     vendas,
     lucro,
@@ -459,8 +576,8 @@ function renderDashboard() {
 
   $("#db-vendas").textContent = periodTotals.vendas;
   $("#db-receitas").textContent = money(periodTotals.receitas);
+  $("#db-taxas").textContent = money(periodTotals.taxas);
   $("#db-ticket").textContent = money(periodTotals.ticket);
-  $("#db-margem").textContent = percent(periodTotals.margem);
 
   $("#goal-current").textContent = money(periodTotals.receitas);
   $("#goal-target").textContent = money(settings.goal);
@@ -468,9 +585,9 @@ function renderDashboard() {
   $("#goal-percent").textContent = `${percent(goalPercent)} da meta atingida`;
 
   $("#card-fat-mensal").textContent = money(periodTotals.receitas);
-  $("#card-fat-bruto").textContent = money(allTotals.receitas);
+  $("#card-fat-bruto").textContent = money(allTotals.receitasBrutas);
+  $("#card-taxas").textContent = money(allTotals.taxas);
   $("#card-saldo-mensal").textContent = money(periodTotals.lucro);
-  $("#card-meta").textContent = percent(goalPercent);
   $("#card-lucro-real").textContent = money(allTotals.lucro);
   $("#card-roi").textContent = percent(allTotals.roi);
 
@@ -482,8 +599,8 @@ function renderFaturamento() {
 
   $("#ft-receitas").textContent = money(total.receitas);
   $("#ft-despesas").textContent = money(total.despesas);
+  $("#ft-taxas").textContent = money(total.taxas);
   $("#ft-saldo").textContent = money(total.lucro);
-  $("#ft-roi").textContent = percent(total.roi);
 
   const list = $("#transaction-list");
 
@@ -497,22 +614,39 @@ function renderFaturamento() {
     return;
   }
 
-  list.innerHTML = transactions.map((item) => `
-    <div class="item-row">
-      <div>
-        <strong>${escapeHTML(item.desc)}</strong>
-        <small>${escapeHTML(item.category)} • ${formatDate(item.date)}</small>
+  list.innerHTML = transactions.map((item) => {
+    const grossValue = getGrossValue(item);
+    const feeValue = getFeeValue(item);
+    const netValue = getNetValue(item);
+    const feePercent = Number(item.feePercent || 0);
+
+    return `
+      <div class="item-row">
+        <div>
+          <strong>${escapeHTML(item.desc)}</strong>
+          <small>${escapeHTML(item.category)} • ${formatDate(item.date)}</small>
+
+          <div class="meta-line">
+            <span>Bruto: ${money(grossValue)}</span>
+            <span>Taxa: ${money(feeValue)} ${feePercent ? `(${feePercent}%)` : ""}</span>
+            <span>Líquido: ${money(netValue)}</span>
+          </div>
+        </div>
+
+        <span class="badge ${item.type === "despesa" ? "red" : ""}">
+          ${item.type}
+        </span>
+
+        <strong>
+          ${money(netValue)}
+        </strong>
+
+        <button class="icon-btn" data-delete-transaction="${item.id}" title="Excluir movimentação">
+          ×
+        </button>
       </div>
-
-      <span class="badge ${item.type === "despesa" ? "red" : ""}">
-        ${item.type}
-      </span>
-
-      <strong class="${item.type === "despesa" ? "red" : "green"}">
-        ${money(item.value)}
-      </strong>
-    </div>
-  `).join("");
+    `;
+  }).join("");
 }
 
 function renderStock() {
@@ -562,12 +696,14 @@ function renderStock() {
 
       <div>
         <small>Lucro previsto</small>
-        <strong class="green">
+        <strong>
           ${money(Number(item.price || 0) - Number(item.cost || 0))}
         </strong>
       </div>
 
-      <span class="badge">${escapeHTML(item.status)}</span>
+      <button class="icon-btn" data-delete-stock="${item.id}" title="Excluir item">
+        ×
+      </button>
     </div>
   `).join("");
 }
@@ -575,11 +711,11 @@ function renderStock() {
 function renderInvestments() {
   const invested = transactions
     .filter((item) => item.type === "despesa" && item.category === "Investimento")
-    .reduce((sum, item) => sum + Number(item.value || 0), 0);
+    .reduce((sum, item) => sum + getNetValue(item), 0);
 
   const retorno = transactions
     .filter((item) => item.type === "receita")
-    .reduce((sum, item) => sum + Number(item.value || 0), 0);
+    .reduce((sum, item) => sum + getNetValue(item), 0);
 
   $("#inv-total").textContent = money(invested);
   $("#inv-retorno").textContent = money(retorno);
@@ -609,7 +745,11 @@ function renderInvestmentList() {
         <small>${formatDate(item.date)}</small>
       </div>
 
-      <strong class="red">${money(item.value)}</strong>
+      <strong>${money(getNetValue(item))}</strong>
+
+      <button class="icon-btn" data-delete-transaction="${item.id}" title="Excluir movimentação">
+        ×
+      </button>
     </div>
   `).join("");
 }
@@ -652,11 +792,11 @@ function renderChart() {
     if (date.getFullYear() !== year) return;
 
     if (item.type === "receita") {
-      receitas[date.getMonth()] += Number(item.value || 0);
+      receitas[date.getMonth()] += getNetValue(item);
     }
 
     if (item.type === "despesa") {
-      despesas[date.getMonth()] += Number(item.value || 0);
+      despesas[date.getMonth()] += getNetValue(item);
     }
   });
 
@@ -683,18 +823,18 @@ function renderChart() {
       ],
       datasets: [
         {
-          label: "Receitas",
+          label: "Receitas líquidas",
           data: receitas,
-          borderColor: "#18e67a",
-          backgroundColor: "rgba(24, 230, 122, .08)",
+          borderColor: "#ffffff",
+          backgroundColor: "rgba(255,255,255,.08)",
           tension: .35,
           fill: true
         },
         {
           label: "Despesas",
           data: despesas,
-          borderColor: "#ff3b3b",
-          backgroundColor: "rgba(255, 59, 59, .06)",
+          borderColor: "#9b9b9b",
+          backgroundColor: "rgba(255,255,255,.035)",
           tension: .35,
           fill: true
         }

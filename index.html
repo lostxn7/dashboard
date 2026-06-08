@@ -3,15 +3,17 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Lost Dashboard</title>
+  <title>JH Store Dashboard</title>
   <link rel="stylesheet" href="style.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script type="module" src="app.js"></script>
 </head>
 <body>
+  <div class="particles"></div>
+
   <section id="login-screen" class="login-screen">
     <div class="login-card">
-      <div class="login-logo">LOST<span>ALL</span></div>
+      <div class="login-logo">JH<span>STORE</span></div>
 
       <h1>Dashboard privado</h1>
       <p>Entre com uma conta Google autorizada para acessar seu painel.</p>
@@ -28,7 +30,7 @@
 
   <div id="app-shell" class="app-shell hidden">
     <aside class="sidebar">
-      <div class="logo">LOST<span>ALL</span></div>
+      <div class="logo">JH<span>STORE</span></div>
 
       <nav>
         <button class="nav-item active" data-page="overview">
@@ -61,22 +63,22 @@
         <header class="hero">
           <div class="hero-icon">▦</div>
           <div>
-            <h1 id="welcome-title">Olá, Lost 👋</h1>
-            <p>Bem-vindo de volta ao seu painel de vendas.</p>
+            <h1 id="welcome-title">Olá 👋</h1>
+            <p>Bem-vindo ao painel da JH Store.</p>
           </div>
         </header>
 
         <div class="cards five">
           <article class="card">
-            <p>Faturamento Total</p>
+            <p>Faturamento Líquido</p>
             <h2 id="ov-total">R$ 0,00</h2>
-            <small class="green">↗ salvo online no Firebase</small>
+            <small>Já descontando taxas</small>
           </article>
 
           <article class="card">
             <p>Vendas Realizadas</p>
             <h2 id="ov-vendas">0</h2>
-            <small>Total de vendas</small>
+            <small>Total de receitas</small>
           </article>
 
           <article class="card">
@@ -100,15 +102,15 @@
 
         <div class="grid two">
           <section class="panel">
-            <h3>Ferramentas Recentes</h3>
+            <h3>Resumo rápido</h3>
             <div class="empty">
-              <strong>Comece registrando uma venda</strong>
-              <p>Use a aba Faturamento para adicionar receitas e despesas.</p>
+              <strong>Controle suas vendas em um só lugar</strong>
+              <p>Adicione movimentações, estoque, investimentos e anotações.</p>
             </div>
           </section>
 
           <section class="panel">
-            <h3>Estatísticas Rápidas</h3>
+            <h3>Estatísticas</h3>
 
             <div class="mini-grid">
               <div class="mini-card">
@@ -163,18 +165,18 @@
             </article>
 
             <article class="card soft">
-              <p>Receitas</p>
+              <p>Receita Líquida</p>
               <h2 id="db-receitas">R$ 0,00</h2>
+            </article>
+
+            <article class="card soft">
+              <p>Taxas Pagas</p>
+              <h2 id="db-taxas">R$ 0,00</h2>
             </article>
 
             <article class="card soft">
               <p>Ticket Médio</p>
               <h2 id="db-ticket">R$ 0,00</h2>
-            </article>
-
-            <article class="card soft">
-              <p>Margem Média</p>
-              <h2 id="db-margem">0.0%</h2>
             </article>
           </div>
         </section>
@@ -224,13 +226,13 @@
           </article>
 
           <article class="card">
-            <p>Saldo Mensal</p>
-            <h2 id="card-saldo-mensal">R$ 0,00</h2>
+            <p>Taxas Totais</p>
+            <h2 id="card-taxas">R$ 0,00</h2>
           </article>
 
           <article class="card">
-            <p>Meta Mensal</p>
-            <h2 id="card-meta">0.0%</h2>
+            <p>Saldo Mensal</p>
+            <h2 id="card-saldo-mensal">R$ 0,00</h2>
           </article>
 
           <article class="card">
@@ -250,7 +252,7 @@
           <div class="hero-icon">↗</div>
           <div>
             <h1>Faturamento</h1>
-            <p>Gerencie suas receitas e despesas.</p>
+            <p>Gerencie receitas, despesas e taxas.</p>
           </div>
 
           <button class="primary" id="open-transaction-modal">+ Nova Movimentação</button>
@@ -258,23 +260,23 @@
 
         <div class="cards four">
           <article class="card">
-            <p>Total Receitas</p>
-            <h2 class="green" id="ft-receitas">R$ 0,00</h2>
+            <p>Total Receitas Líquidas</p>
+            <h2 id="ft-receitas">R$ 0,00</h2>
           </article>
 
           <article class="card">
             <p>Total Despesas</p>
-            <h2 class="red" id="ft-despesas">R$ 0,00</h2>
+            <h2 id="ft-despesas">R$ 0,00</h2>
+          </article>
+
+          <article class="card">
+            <p>Taxas Pagas</p>
+            <h2 id="ft-taxas">R$ 0,00</h2>
           </article>
 
           <article class="card">
             <p>Saldo Atual</p>
-            <h2 class="green" id="ft-saldo">R$ 0,00</h2>
-          </article>
-
-          <article class="card">
-            <p>ROI</p>
-            <h2 class="green" id="ft-roi">0.0%</h2>
+            <h2 id="ft-saldo">R$ 0,00</h2>
           </article>
         </div>
 
@@ -286,7 +288,7 @@
         <section class="panel">
           <div class="panel-title">
             <h3>Movimentações</h3>
-            <button class="ghost danger" id="clear-transactions">Limpar</button>
+            <button class="ghost danger" id="clear-transactions">Limpar tudo</button>
           </div>
 
           <div id="transaction-list" class="list"></div>
@@ -329,7 +331,7 @@
         <section class="panel">
           <div class="panel-title">
             <h3>Produtos</h3>
-            <button class="ghost danger" id="clear-stock">Limpar</button>
+            <button class="ghost danger" id="clear-stock">Limpar tudo</button>
           </div>
 
           <div id="stock-list" class="stock-table"></div>
@@ -400,7 +402,7 @@
         <section class="panel settings">
           <label>
             Nome do painel
-            <input id="setting-name" placeholder="Lost Dashboard" />
+            <input id="setting-name" placeholder="JH Store" />
           </label>
 
           <label>
@@ -412,8 +414,6 @@
         </section>
       </section>
     </main>
-
-    <button class="support">💬 Suporte</button>
   </div>
 
   <dialog id="transaction-modal" class="modal">
@@ -451,16 +451,28 @@
       </label>
 
       <label>
-        Valor
-        <input id="tr-value" type="number" step="0.01" min="0" placeholder="9.90" required />
+        Valor bruto
+        <input id="tr-gross-value" type="number" step="0.01" min="0" placeholder="9.90" required />
       </label>
+
+      <label id="fee-field">
+        Taxa da plataforma (%)
+        <input id="tr-fee-percent" type="number" step="0.01" min="0" placeholder="Ex: 10" />
+      </label>
+
+      <div class="fee-preview">
+        <span>Taxa descontada: <b id="fee-value-preview">R$ 0,00</b></span>
+        <span>Valor líquido: <b id="net-value-preview">R$ 0,00</b></span>
+      </div>
 
       <label>
         Data
         <input id="tr-date" type="date" required />
       </label>
 
-      <button class="primary full" type="submit">Salvar movimentação</button>
+      <button class="primary full" id="save-transaction-btn" type="submit">
+        Salvar movimentação
+      </button>
     </form>
   </dialog>
 
@@ -507,7 +519,9 @@
         </select>
       </label>
 
-      <button class="primary full" type="submit">Salvar item</button>
+      <button class="primary full" id="save-stock-btn" type="submit">
+        Salvar item
+      </button>
     </form>
   </dialog>
 </body>
