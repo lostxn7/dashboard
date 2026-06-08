@@ -6,286 +6,415 @@
   <title>Lost Dashboard</title>
   <link rel="stylesheet" href="style.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script defer src="app.js"></script>
+  <script type="module" src="app.js"></script>
 </head>
 <body>
-  <aside class="sidebar">
-    <div class="logo">LOST<span>ALL</span></div>
+  <section id="login-screen" class="login-screen">
+    <div class="login-card">
+      <div class="login-logo">LOST<span>ALL</span></div>
 
-    <nav>
-      <button class="nav-item active" data-page="overview">
-        <span>⌂</span> Home
+      <h1>Dashboard privado</h1>
+      <p>Entre com uma conta Google autorizada para acessar seu painel.</p>
+
+      <button id="google-login" class="primary full">
+        Entrar com Google
       </button>
-    </nav>
 
-    <div class="nav-group">
-      <p>VENDAS</p>
-      <button class="nav-item" data-page="dashboard"><span>▥</span> Dashboard</button>
-      <button class="nav-item" data-page="faturamento"><span>▣</span> Faturamento</button>
-      <button class="nav-item" data-page="estoque"><span>▤</span> Estoque</button>
-      <button class="nav-item" data-page="investimentos"><span>◈</span> Investimentos</button>
+      <small id="login-status">
+        Somente emails permitidos podem acessar.
+      </small>
     </div>
+  </section>
 
-    <div class="nav-group">
-      <p>EXTRAS</p>
-      <button class="nav-item" data-page="forum"><span>☰</span> Anotações</button>
-      <button class="nav-item" data-page="config"><span>⚙</span> Configurações</button>
-    </div>
-  </aside>
+  <div id="app-shell" class="app-shell hidden">
+    <aside class="sidebar">
+      <div class="logo">LOST<span>ALL</span></div>
 
-  <main class="content">
-    <section id="overview" class="page active">
-      <header class="hero">
-        <div class="hero-icon">▦</div>
-        <div>
-          <h1>Olá, Lost 👋</h1>
-          <p>Bem-vindo de volta ao seu painel de vendas.</p>
-        </div>
-      </header>
+      <nav>
+        <button class="nav-item active" data-page="overview">
+          <span>⌂</span> Home
+        </button>
+      </nav>
 
-      <div class="cards five">
-        <article class="card">
-          <p>Faturamento Total</p>
-          <h2 id="ov-total">R$ 0,00</h2>
-          <small class="green">↗ atualizado automaticamente</small>
-        </article>
-        <article class="card">
-          <p>Vendas Realizadas</p>
-          <h2 id="ov-vendas">0</h2>
-          <small>Total de vendas</small>
-        </article>
-        <article class="card">
-          <p>Lucro Líquido</p>
-          <h2 id="ov-lucro">R$ 0,00</h2>
-          <small>Receitas - Despesas</small>
-        </article>
-        <article class="card">
-          <p>Estoque Ativo</p>
-          <h2 id="ov-estoque">0</h2>
-          <small>Itens não vendidos</small>
-        </article>
-        <article class="card">
-          <p>ROI</p>
-          <h2 id="ov-roi">0.0%</h2>
-          <small>Retorno dos investimentos</small>
-        </article>
+      <div class="nav-group">
+        <p>VENDAS</p>
+        <button class="nav-item" data-page="dashboard"><span>▥</span> Dashboard</button>
+        <button class="nav-item" data-page="faturamento"><span>▣</span> Faturamento</button>
+        <button class="nav-item" data-page="estoque"><span>▤</span> Estoque</button>
+        <button class="nav-item" data-page="investimentos"><span>◈</span> Investimentos</button>
       </div>
 
-      <div class="grid two">
-        <section class="panel">
-          <h3>Ferramentas Recentes</h3>
-          <div class="empty">
-            <strong>Comece registrando uma venda</strong>
-            <p>Use a aba Faturamento para adicionar receitas e despesas.</p>
-          </div>
-        </section>
-
-        <section class="panel">
-          <h3>Estatísticas Rápidas</h3>
-          <div class="mini-grid">
-            <div class="mini-card">
-              <p>Meta Mensal</p>
-              <h3 id="quick-meta">0%</h3>
-            </div>
-            <div class="mini-card">
-              <p>Ticket Médio</p>
-              <h3 id="quick-ticket">R$ 0,00</h3>
-            </div>
-            <div class="mini-card">
-              <p>Total Investido</p>
-              <h3 id="quick-investido">R$ 0,00</h3>
-            </div>
-          </div>
-
-          <div class="goal-line">
-            <span>Progresso da Meta</span>
-            <b id="quick-progress-text">0.0%</b>
-          </div>
-          <div class="progress"><div id="quick-progress"></div></div>
-        </section>
+      <div class="nav-group">
+        <p>EXTRAS</p>
+        <button class="nav-item" data-page="forum"><span>☰</span> Anotações</button>
+        <button class="nav-item" data-page="config"><span>⚙</span> Configurações</button>
       </div>
-    </section>
 
-    <section id="dashboard" class="page">
-      <header class="hero">
-        <div class="hero-icon">▥</div>
-        <div>
-          <h1>Dashboard</h1>
-          <p>Acompanhe suas métricas financeiras.</p>
-        </div>
-        <div class="filters">
-          <select id="month-filter"></select>
-          <select id="year-filter"></select>
-        </div>
-      </header>
+      <div class="user-box">
+        <small id="user-email">Carregando...</small>
+        <button id="logout-btn" class="ghost danger">Sair</button>
+      </div>
+    </aside>
 
-      <section class="panel">
-        <h3>Resumo do Período</h3>
-        <div class="cards four flat">
-          <article class="card soft"><p>Vendas Realizadas</p><h2 id="db-vendas">0</h2></article>
-          <article class="card soft"><p>Receitas</p><h2 id="db-receitas">R$ 0,00</h2></article>
-          <article class="card soft"><p>Ticket Médio</p><h2 id="db-ticket">R$ 0,00</h2></article>
-          <article class="card soft"><p>Margem Média</p><h2 id="db-margem">0.0%</h2></article>
+    <main class="content">
+      <section id="overview" class="page active">
+        <header class="hero">
+          <div class="hero-icon">▦</div>
+          <div>
+            <h1 id="welcome-title">Olá, Lost 👋</h1>
+            <p>Bem-vindo de volta ao seu painel de vendas.</p>
+          </div>
+        </header>
+
+        <div class="cards five">
+          <article class="card">
+            <p>Faturamento Total</p>
+            <h2 id="ov-total">R$ 0,00</h2>
+            <small class="green">↗ salvo online no Firebase</small>
+          </article>
+
+          <article class="card">
+            <p>Vendas Realizadas</p>
+            <h2 id="ov-vendas">0</h2>
+            <small>Total de vendas</small>
+          </article>
+
+          <article class="card">
+            <p>Lucro Líquido</p>
+            <h2 id="ov-lucro">R$ 0,00</h2>
+            <small>Receitas - Despesas</small>
+          </article>
+
+          <article class="card">
+            <p>Estoque Ativo</p>
+            <h2 id="ov-estoque">0</h2>
+            <small>Itens não vendidos</small>
+          </article>
+
+          <article class="card">
+            <p>ROI</p>
+            <h2 id="ov-roi">0.0%</h2>
+            <small>Retorno dos investimentos</small>
+          </article>
+        </div>
+
+        <div class="grid two">
+          <section class="panel">
+            <h3>Ferramentas Recentes</h3>
+            <div class="empty">
+              <strong>Comece registrando uma venda</strong>
+              <p>Use a aba Faturamento para adicionar receitas e despesas.</p>
+            </div>
+          </section>
+
+          <section class="panel">
+            <h3>Estatísticas Rápidas</h3>
+
+            <div class="mini-grid">
+              <div class="mini-card">
+                <p>Meta Mensal</p>
+                <h3 id="quick-meta">0%</h3>
+              </div>
+
+              <div class="mini-card">
+                <p>Ticket Médio</p>
+                <h3 id="quick-ticket">R$ 0,00</h3>
+              </div>
+
+              <div class="mini-card">
+                <p>Total Investido</p>
+                <h3 id="quick-investido">R$ 0,00</h3>
+              </div>
+            </div>
+
+            <div class="goal-line">
+              <span>Progresso da Meta</span>
+              <b id="quick-progress-text">0.0%</b>
+            </div>
+
+            <div class="progress">
+              <div id="quick-progress"></div>
+            </div>
+          </section>
         </div>
       </section>
 
-      <div class="grid two">
+      <section id="dashboard" class="page">
+        <header class="hero">
+          <div class="hero-icon">▥</div>
+          <div>
+            <h1>Dashboard</h1>
+            <p>Acompanhe suas métricas financeiras.</p>
+          </div>
+
+          <div class="filters">
+            <select id="month-filter"></select>
+            <select id="year-filter"></select>
+          </div>
+        </header>
+
+        <section class="panel">
+          <h3>Resumo do Período</h3>
+
+          <div class="cards four flat">
+            <article class="card soft">
+              <p>Vendas Realizadas</p>
+              <h2 id="db-vendas">0</h2>
+            </article>
+
+            <article class="card soft">
+              <p>Receitas</p>
+              <h2 id="db-receitas">R$ 0,00</h2>
+            </article>
+
+            <article class="card soft">
+              <p>Ticket Médio</p>
+              <h2 id="db-ticket">R$ 0,00</h2>
+            </article>
+
+            <article class="card soft">
+              <p>Margem Média</p>
+              <h2 id="db-margem">0.0%</h2>
+            </article>
+          </div>
+        </section>
+
+        <div class="grid two">
+          <section class="panel">
+            <div class="panel-title">
+              <h3>Progresso da Meta</h3>
+
+              <div class="goal-actions">
+                <select id="goal-select">
+                  <option value="1000">R$ 1.000</option>
+                  <option value="3000">R$ 3.000</option>
+                  <option value="5000">R$ 5.000</option>
+                  <option value="10000">R$ 10.000</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="goal-line">
+              <span id="goal-current">R$ 0,00</span>
+              <b id="goal-target">R$ 5.000,00</b>
+            </div>
+
+            <div class="progress">
+              <div id="goal-progress"></div>
+            </div>
+
+            <p class="center-muted" id="goal-percent">0.0% da meta atingida</p>
+          </section>
+
+          <section class="panel">
+            <h3>Gastos com Investimentos</h3>
+            <div id="investment-list" class="list compact"></div>
+          </section>
+        </div>
+
+        <div class="cards six">
+          <article class="card">
+            <p>Faturamento Mensal</p>
+            <h2 id="card-fat-mensal">R$ 0,00</h2>
+          </article>
+
+          <article class="card">
+            <p>Faturamento Bruto</p>
+            <h2 id="card-fat-bruto">R$ 0,00</h2>
+          </article>
+
+          <article class="card">
+            <p>Saldo Mensal</p>
+            <h2 id="card-saldo-mensal">R$ 0,00</h2>
+          </article>
+
+          <article class="card">
+            <p>Meta Mensal</p>
+            <h2 id="card-meta">0.0%</h2>
+          </article>
+
+          <article class="card">
+            <p>Lucro Líquido Real</p>
+            <h2 id="card-lucro-real">R$ 0,00</h2>
+          </article>
+
+          <article class="card">
+            <p>ROI dos Investimentos</p>
+            <h2 id="card-roi">0.0%</h2>
+          </article>
+        </div>
+      </section>
+
+      <section id="faturamento" class="page">
+        <header class="hero">
+          <div class="hero-icon">↗</div>
+          <div>
+            <h1>Faturamento</h1>
+            <p>Gerencie suas receitas e despesas.</p>
+          </div>
+
+          <button class="primary" id="open-transaction-modal">+ Nova Movimentação</button>
+        </header>
+
+        <div class="cards four">
+          <article class="card">
+            <p>Total Receitas</p>
+            <h2 class="green" id="ft-receitas">R$ 0,00</h2>
+          </article>
+
+          <article class="card">
+            <p>Total Despesas</p>
+            <h2 class="red" id="ft-despesas">R$ 0,00</h2>
+          </article>
+
+          <article class="card">
+            <p>Saldo Atual</p>
+            <h2 class="green" id="ft-saldo">R$ 0,00</h2>
+          </article>
+
+          <article class="card">
+            <p>ROI</p>
+            <h2 class="green" id="ft-roi">0.0%</h2>
+          </article>
+        </div>
+
+        <section class="panel">
+          <h3>Evolução Mensal</h3>
+          <canvas id="monthly-chart" height="90"></canvas>
+        </section>
+
         <section class="panel">
           <div class="panel-title">
-            <h3>Progresso da Meta</h3>
-            <div class="goal-actions">
-              <select id="goal-select">
-                <option value="1000">R$ 1.000</option>
-                <option value="3000">R$ 3.000</option>
-                <option value="5000">R$ 5.000</option>
-                <option value="10000">R$ 10.000</option>
-              </select>
-            </div>
+            <h3>Movimentações</h3>
+            <button class="ghost danger" id="clear-transactions">Limpar</button>
           </div>
-          <div class="goal-line">
-            <span id="goal-current">R$ 0,00</span>
-            <b id="goal-target">R$ 5.000,00</b>
-          </div>
-          <div class="progress"><div id="goal-progress"></div></div>
-          <p class="center-muted" id="goal-percent">0.0% da meta atingida</p>
+
+          <div id="transaction-list" class="list"></div>
         </section>
+      </section>
+
+      <section id="estoque" class="page">
+        <header class="hero">
+          <div class="hero-icon">▤</div>
+          <div>
+            <h1>Estoque</h1>
+            <p>Controle contas, itens e produtos para venda.</p>
+          </div>
+
+          <button class="primary" id="open-stock-modal">+ Adicionar Item</button>
+        </header>
+
+        <div class="cards four">
+          <article class="card">
+            <p>Itens no Estoque</p>
+            <h2 id="st-total">0</h2>
+          </article>
+
+          <article class="card">
+            <p>Anunciados</p>
+            <h2 id="st-anunciados">0</h2>
+          </article>
+
+          <article class="card">
+            <p>Vendidos</p>
+            <h2 id="st-vendidos">0</h2>
+          </article>
+
+          <article class="card">
+            <p>Valor Potencial</p>
+            <h2 id="st-potencial">R$ 0,00</h2>
+          </article>
+        </div>
 
         <section class="panel">
-          <h3>Gastos com Investimentos</h3>
-          <div id="investment-list" class="list compact"></div>
+          <div class="panel-title">
+            <h3>Produtos</h3>
+            <button class="ghost danger" id="clear-stock">Limpar</button>
+          </div>
+
+          <div id="stock-list" class="stock-table"></div>
         </section>
-      </div>
-
-      <div class="cards six">
-        <article class="card"><p>Faturamento Mensal</p><h2 id="card-fat-mensal">R$ 0,00</h2></article>
-        <article class="card"><p>Faturamento Bruto</p><h2 id="card-fat-bruto">R$ 0,00</h2></article>
-        <article class="card"><p>Saldo Mensal</p><h2 id="card-saldo-mensal">R$ 0,00</h2></article>
-        <article class="card"><p>Meta Mensal</p><h2 id="card-meta">0.0%</h2></article>
-        <article class="card"><p>Lucro Líquido Real</p><h2 id="card-lucro-real">R$ 0,00</h2></article>
-        <article class="card"><p>ROI dos Investimentos</p><h2 id="card-roi">0.0%</h2></article>
-      </div>
-    </section>
-
-    <section id="faturamento" class="page">
-      <header class="hero">
-        <div class="hero-icon">↗</div>
-        <div>
-          <h1>Faturamento</h1>
-          <p>Gerencie suas receitas e despesas.</p>
-        </div>
-        <button class="primary" id="open-transaction-modal">+ Nova Movimentação</button>
-      </header>
-
-      <div class="cards four">
-        <article class="card"><p>Total Receitas</p><h2 class="green" id="ft-receitas">R$ 0,00</h2></article>
-        <article class="card"><p>Total Despesas</p><h2 class="red" id="ft-despesas">R$ 0,00</h2></article>
-        <article class="card"><p>Saldo Atual</p><h2 class="green" id="ft-saldo">R$ 0,00</h2></article>
-        <article class="card"><p>ROI</p><h2 class="green" id="ft-roi">0.0%</h2></article>
-      </div>
-
-      <section class="panel">
-        <h3>Evolução Mensal</h3>
-        <canvas id="monthly-chart" height="90"></canvas>
       </section>
 
-      <section class="panel">
-        <div class="panel-title">
-          <h3>Movimentações</h3>
-          <button class="ghost danger" id="clear-transactions">Limpar</button>
+      <section id="investimentos" class="page">
+        <header class="hero">
+          <div class="hero-icon">◈</div>
+          <div>
+            <h1>Investimentos</h1>
+            <p>Veja quanto você gastou e quanto voltou.</p>
+          </div>
+
+          <button class="primary" id="quick-investment">+ Adicionar</button>
+        </header>
+
+        <div class="cards three">
+          <article class="card soft">
+            <p>Total Investido</p>
+            <h2 id="inv-total">R$ 0,00</h2>
+          </article>
+
+          <article class="card soft">
+            <p>Retorno Obtido</p>
+            <h2 id="inv-retorno">R$ 0,00</h2>
+          </article>
+
+          <article class="card soft">
+            <p>Saldo Atual</p>
+            <h2 id="inv-saldo">R$ 0,00</h2>
+          </article>
         </div>
-        <div id="transaction-list" class="list"></div>
+
+        <section class="panel">
+          <h3>Resumo</h3>
+          <p class="muted">Todo lançamento marcado como “Despesa” e categoria “Investimento” aparece aqui.</p>
+        </section>
       </section>
-    </section>
 
-    <section id="estoque" class="page">
-      <header class="hero">
-        <div class="hero-icon">▤</div>
-        <div>
-          <h1>Estoque</h1>
-          <p>Controle contas, itens e produtos para venda.</p>
-        </div>
-        <button class="primary" id="open-stock-modal">+ Adicionar Item</button>
-      </header>
+      <section id="forum" class="page">
+        <header class="hero">
+          <div>
+            <h1>Anotações</h1>
+            <p>Use como central de ideias, metas e estratégias.</p>
+          </div>
+        </header>
 
-      <div class="cards four">
-        <article class="card"><p>Itens no Estoque</p><h2 id="st-total">0</h2></article>
-        <article class="card"><p>Anunciados</p><h2 id="st-anunciados">0</h2></article>
-        <article class="card"><p>Vendidos</p><h2 id="st-vendidos">0</h2></article>
-        <article class="card"><p>Valor Potencial</p><h2 id="st-potencial">R$ 0,00</h2></article>
-      </div>
+        <section class="panel">
+          <div class="note-form">
+            <input id="note-title" placeholder="Título da anotação" />
+            <textarea id="note-text" placeholder="Escreva uma estratégia, lembrete ou ideia..."></textarea>
+            <button class="primary" id="add-note">Salvar anotação</button>
+          </div>
 
-      <section class="panel">
-        <div class="panel-title">
-          <h3>Produtos</h3>
-          <button class="ghost danger" id="clear-stock">Limpar</button>
-        </div>
-        <div id="stock-list" class="stock-table"></div>
+          <div id="notes-list" class="list"></div>
+        </section>
       </section>
-    </section>
 
-    <section id="investimentos" class="page">
-      <header class="hero">
-        <div class="hero-icon">◈</div>
-        <div>
-          <h1>Investimentos</h1>
-          <p>Veja quanto você gastou e quanto voltou.</p>
-        </div>
-        <button class="primary" id="quick-investment">+ Adicionar</button>
-      </header>
+      <section id="config" class="page">
+        <header class="hero">
+          <div>
+            <h1>Configurações</h1>
+            <p>Personalize o painel.</p>
+          </div>
+        </header>
 
-      <div class="cards three">
-        <article class="card soft"><p>Total Investido</p><h2 id="inv-total">R$ 0,00</h2></article>
-        <article class="card soft"><p>Retorno Obtido</p><h2 id="inv-retorno">R$ 0,00</h2></article>
-        <article class="card soft"><p>Saldo Atual</p><h2 id="inv-saldo">R$ 0,00</h2></article>
-      </div>
+        <section class="panel settings">
+          <label>
+            Nome do painel
+            <input id="setting-name" placeholder="Lost Dashboard" />
+          </label>
 
-      <section class="panel">
-        <h3>Resumo</h3>
-        <p class="muted">Todo lançamento marcado como “Despesa” e categoria “Investimento” aparece aqui.</p>
+          <label>
+            Meta personalizada
+            <input id="setting-goal" type="number" placeholder="5000" />
+          </label>
+
+          <button class="primary" id="save-settings">Salvar</button>
+        </section>
       </section>
-    </section>
+    </main>
 
-    <section id="forum" class="page">
-      <header class="hero">
-        <div>
-          <h1>Anotações</h1>
-          <p>Use como central de ideias, metas e estratégias.</p>
-        </div>
-      </header>
-
-      <section class="panel">
-        <div class="note-form">
-          <input id="note-title" placeholder="Título da anotação" />
-          <textarea id="note-text" placeholder="Escreva uma estratégia, lembrete ou ideia..."></textarea>
-          <button class="primary" id="add-note">Salvar anotação</button>
-        </div>
-        <div id="notes-list" class="list"></div>
-      </section>
-    </section>
-
-    <section id="config" class="page">
-      <header class="hero">
-        <div>
-          <h1>Configurações</h1>
-          <p>Personalize o painel.</p>
-        </div>
-      </header>
-
-      <section class="panel settings">
-        <label>
-          Nome do painel
-          <input id="setting-name" placeholder="Lost Dashboard" />
-        </label>
-        <label>
-          Meta personalizada
-          <input id="setting-goal" type="number" placeholder="5000" />
-        </label>
-        <button class="primary" id="save-settings">Salvar</button>
-      </section>
-    </section>
-  </main>
-
-  <button class="support">💬 Suporte</button>
+    <button class="support">💬 Suporte</button>
+  </div>
 
   <dialog id="transaction-modal" class="modal">
     <form method="dialog" id="transaction-form">
@@ -294,14 +423,16 @@
         <button type="button" class="close" data-close="transaction-modal">×</button>
       </div>
 
-      <label>Tipo
+      <label>
+        Tipo
         <select id="tr-type" required>
           <option value="receita">Receita</option>
           <option value="despesa">Despesa</option>
         </select>
       </label>
 
-      <label>Categoria
+      <label>
+        Categoria
         <select id="tr-category" required>
           <option>Jailbreak</option>
           <option>Steal a Brainrot</option>
@@ -314,15 +445,18 @@
         </select>
       </label>
 
-      <label>Descrição
+      <label>
+        Descrição
         <input id="tr-desc" placeholder="Ex: Conta Jailbreak 1M vendida" required />
       </label>
 
-      <label>Valor
+      <label>
+        Valor
         <input id="tr-value" type="number" step="0.01" min="0" placeholder="9.90" required />
       </label>
 
-      <label>Data
+      <label>
+        Data
         <input id="tr-date" type="date" required />
       </label>
 
@@ -337,11 +471,13 @@
         <button type="button" class="close" data-close="stock-modal">×</button>
       </div>
 
-      <label>Nome
+      <label>
+        Nome
         <input id="stock-name" placeholder="Conta Jailbreak 1M" required />
       </label>
 
-      <label>Jogo
+      <label>
+        Jogo
         <select id="stock-game" required>
           <option>Jailbreak</option>
           <option>Steal a Brainrot</option>
@@ -351,15 +487,18 @@
         </select>
       </label>
 
-      <label>Valor de custo
+      <label>
+        Valor de custo
         <input id="stock-cost" type="number" step="0.01" min="0" placeholder="0" />
       </label>
 
-      <label>Preço anunciado
+      <label>
+        Preço anunciado
         <input id="stock-price" type="number" step="0.01" min="0" placeholder="9.90" required />
       </label>
 
-      <label>Status
+      <label>
+        Status
         <select id="stock-status" required>
           <option>Farmando</option>
           <option>Anunciado</option>

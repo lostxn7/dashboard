@@ -1,3 +1,42 @@
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
+
+import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithPopup,
+  signOut,
+  onAuthStateChanged
+} from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+
+import {
+  getFirestore,
+  collection,
+  doc,
+  getDoc,
+  setDoc,
+  addDoc,
+  getDocs,
+  onSnapshot,
+  deleteDoc,
+  serverTimestamp,
+  query,
+  orderBy
+} from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyA63S6kCkfk8cou_plj-rJ0Hb71XP7gNHo",
+  authDomain: "dashboard-ec697.firebaseapp.com",
+  projectId: "dashboard-ec697",
+  storageBucket: "dashboard-ec697.firebasestorage.app",
+  messagingSenderId: "929917316857",
+  appId: "1:929917316857:web:4cfc94270c4ca17c54bc28"
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const provider = new GoogleAuthProvider();
+
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => document.querySelectorAll(selector);
 
@@ -8,41 +47,170 @@ const money = (value) => Number(value || 0).toLocaleString("pt-BR", {
 
 const percent = (value) => `${Number(value || 0).toFixed(1)}%`;
 
-const storage = {
-  get(key, fallback) {
-    try {
-      return JSON.parse(localStorage.getItem(key)) ?? fallback;
-    } catch {
-      return fallback;
-    }
-  },
-  set(key, value) {
-    localStorage.setItem(key, JSON.stringify(value));
-  }
-};
-
-let transactions = storage.get("lost_transactions", []);
-let stock = storage.get("lost_stock", []);
-let notes = storage.get("lost_notes", []);
-let settings = storage.get("lost_settings", {
+let transactions = [];
+let stock = [];
+let notes = [];
+let settings = {
   name: "Lost Dashboard",
   goal: 5000
-});
+};
 
 let monthlyChart;
+let unsubscribers = [];
 
 const months = [
-  "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
-  "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
+  "Janeiro",
+  "Fevereiro",
+  "Março",
+  "Abril",
+  "Maio",
+  "Junho",
+  "Julho",
+  "Agosto",
+  "Setembro",
+  "Outubro",
+  "Novembro",
+  "Dezembro"
 ];
 
-function init() {
+document.addEventListener("DOMContentLoaded", () => {
+  setupLogin();
   setupNavigation();
   setupFilters();
   setupModals();
   setupForms();
-  setupSettings();
-  renderAll();
+  listenAuth();
+});
+
+function setupLogin() {
+  $("#google-login").addEventListener("click", async () => {
+    $("#login-status").textContent = "Abrindo login...";
+
+    try {
+      await signInWithPopup(auth, provider);
+    } catch (error) {
+      console.error(error);
+      $("#login-status").textContent = "Erro ao entrar. Confira se o login Google está ativado no Firebase.";
+    }
+  });
+
+  $("#logout-btn").addEventListener("click", async () => {
+    await signOut(auth);
+  });
+}
+
+function listenAuth() {
+  onAuthStateChanged(auth, async (user) => {
+    stopListeners();
+
+    if (!user) {
+      showLogin("Somente emails permitidos podem acessar.");
+      return;
+    }
+
+    const allowed = await isAllowedUser(user.email);
+
+    if (!allowed) {
+      await signOut(auth);
+      showLogin(`Acesso negado para ${user.email}. Esse email não está permitido.`);
+      return;
+    }
+
+    $("#user-email").textContent = user.email;
+    $("#welcome-title").textContent = `Olá, ${user.displayName || "Lost"} 👋`;
+
+    showApp();
+
+    await ensureDefaultSettings();
+    startFirestoreListeners();
+  });
+}
+
+async function isAllowedUser(email) {
+  if (!email) return false;
+
+  try {
+    const allowedDoc = await getDoc(doc(db, "allowedUsers", email));
+    return allowedDoc.exists();
+  } catch (error) {
+    console.error(error);
+    $("#login-status").textContent = "Erro ao verificar permissão. Confira as regras do Firestore.";
+    return false;
+  }
+}
+
+function showLogin(message) {
+  $("#app-shell").classList.add("hidden");
+  $("#login-screen").classList.remove("hidden");
+  $("#login-status").textContent = message;
+}
+
+function showApp() {
+  $("#login-screen").classList.add("hidden");
+  $("#app-shell").classList.remove("hidden");
+}
+
+async function ensureDefaultSettings() {
+  const settingsRef = doc(db, "settings", "main");
+  const snap = await getDoc(settingsRef);
+
+  if (!snap.exists()) {
+    await setDoc(settingsRef, {
+      name: "Lost Dashboard",
+      goal: 5000,
+      updatedAt: serverTimestamp()
+    });
+  }
+}
+
+function startFirestoreListeners() {
+  const transactionsQuery = query(collection(db, "transactions"), orderBy("createdAt", "desc"));
+  const stockQuery = query(collection(db, "stock"), orderBy("createdAt", "desc"));
+  const notesQuery = query(collection(db, "notes"), orderBy("createdAt", "desc"));
+
+  unsubscribers.push(onSnapshot(transactionsQuery, (snapshot) => {
+    transactions = snapshot.docs.map((docItem) => ({
+      id: docItem.id,
+      ...docItem.data()
+    }));
+
+    renderAll();
+  }));
+
+  unsubscribers.push(onSnapshot(stockQuery, (snapshot) => {
+    stock = snapshot.docs.map((docItem) => ({
+      id: docItem.id,
+      ...docItem.data()
+    }));
+
+    renderAll();
+  }));
+
+  unsubscribers.push(onSnapshot(notesQuery, (snapshot) => {
+    notes = snapshot.docs.map((docItem) => ({
+      id: docItem.id,
+      ...docItem.data()
+    }));
+
+    renderNotes();
+  }));
+
+  unsubscribers.push(onSnapshot(doc(db, "settings", "main"), (snapshot) => {
+    if (snapshot.exists()) {
+      settings = {
+        name: snapshot.data().name || "Lost Dashboard",
+        goal: Number(snapshot.data().goal || 5000)
+      };
+
+      setupSettingsValues();
+      renderAll();
+    }
+  }));
+}
+
+function stopListeners() {
+  unsubscribers.forEach((unsubscribe) => unsubscribe());
+  unsubscribers = [];
 }
 
 function setupNavigation() {
@@ -71,6 +239,7 @@ function setupFilters() {
   }).join("");
 
   const year = current.getFullYear();
+
   yearFilter.innerHTML = [year - 1, year, year + 1].map((y) => {
     return `<option value="${y}" ${y === year ? "selected" : ""}>${y}</option>`;
   }).join("");
@@ -104,113 +273,125 @@ function setupModals() {
 }
 
 function setupForms() {
-  $("#transaction-form").addEventListener("submit", (event) => {
+  $("#transaction-form").addEventListener("submit", async (event) => {
     event.preventDefault();
 
-    transactions.unshift({
-      id: crypto.randomUUID(),
+    await addDoc(collection(db, "transactions"), {
       type: $("#tr-type").value,
       category: $("#tr-category").value,
       desc: $("#tr-desc").value.trim(),
       value: Number($("#tr-value").value),
-      date: $("#tr-date").value
+      date: $("#tr-date").value,
+      createdAt: serverTimestamp()
     });
 
-    storage.set("lost_transactions", transactions);
     event.target.reset();
     $("#transaction-modal").close();
-    renderAll();
   });
 
-  $("#stock-form").addEventListener("submit", (event) => {
+  $("#stock-form").addEventListener("submit", async (event) => {
     event.preventDefault();
 
-    stock.unshift({
-      id: crypto.randomUUID(),
+    await addDoc(collection(db, "stock"), {
       name: $("#stock-name").value.trim(),
       game: $("#stock-game").value,
       cost: Number($("#stock-cost").value || 0),
       price: Number($("#stock-price").value || 0),
-      status: $("#stock-status").value
+      status: $("#stock-status").value,
+      createdAt: serverTimestamp()
     });
 
-    storage.set("lost_stock", stock);
     event.target.reset();
     $("#stock-modal").close();
-    renderAll();
   });
 
-  $("#add-note").addEventListener("click", () => {
+  $("#add-note").addEventListener("click", async () => {
     const title = $("#note-title").value.trim();
     const text = $("#note-text").value.trim();
 
     if (!title || !text) return;
 
-    notes.unshift({
-      id: crypto.randomUUID(),
+    await addDoc(collection(db, "notes"), {
       title,
       text,
-      date: new Date().toLocaleDateString("pt-BR")
+      date: new Date().toLocaleDateString("pt-BR"),
+      createdAt: serverTimestamp()
     });
 
-    storage.set("lost_notes", notes);
     $("#note-title").value = "";
     $("#note-text").value = "";
-    renderNotes();
   });
 
-  $("#clear-transactions").addEventListener("click", () => {
+  $("#clear-transactions").addEventListener("click", async () => {
     if (!confirm("Tem certeza que deseja apagar todas as movimentações?")) return;
-    transactions = [];
-    storage.set("lost_transactions", transactions);
-    renderAll();
+    await deleteCollection("transactions");
   });
 
-  $("#clear-stock").addEventListener("click", () => {
+  $("#clear-stock").addEventListener("click", async () => {
     if (!confirm("Tem certeza que deseja apagar todo o estoque?")) return;
-    stock = [];
-    storage.set("lost_stock", stock);
-    renderAll();
+    await deleteCollection("stock");
   });
 
-  $("#goal-select").addEventListener("change", () => {
+  $("#goal-select").addEventListener("change", async () => {
     settings.goal = Number($("#goal-select").value);
-    storage.set("lost_settings", settings);
-    renderAll();
+    await saveSettings();
   });
-}
 
-function setupSettings() {
-  $("#setting-name").value = settings.name;
-  $("#setting-goal").value = settings.goal;
-  $("#goal-select").value = String(settings.goal);
-
-  $("#save-settings").addEventListener("click", () => {
+  $("#save-settings").addEventListener("click", async () => {
     settings.name = $("#setting-name").value.trim() || "Lost Dashboard";
     settings.goal = Number($("#setting-goal").value || 5000);
 
-    if (![1000, 3000, 5000, 10000].includes(settings.goal)) {
-      const option = document.createElement("option");
-      option.value = settings.goal;
-      option.textContent = money(settings.goal);
-      $("#goal-select").appendChild(option);
-    }
+    await saveSettings();
 
-    $("#goal-select").value = String(settings.goal);
-    storage.set("lost_settings", settings);
-    renderAll();
     alert("Configurações salvas!");
   });
+}
+
+async function deleteCollection(collectionName) {
+  const snapshot = await getDocs(collection(db, collectionName));
+
+  const deletions = snapshot.docs.map((docItem) => {
+    return deleteDoc(doc(db, collectionName, docItem.id));
+  });
+
+  await Promise.all(deletions);
+}
+
+async function saveSettings() {
+  await setDoc(doc(db, "settings", "main"), {
+    name: settings.name || "Lost Dashboard",
+    goal: Number(settings.goal || 5000),
+    updatedAt: serverTimestamp()
+  }, {
+    merge: true
+  });
+}
+
+function setupSettingsValues() {
+  $("#setting-name").value = settings.name;
+  $("#setting-goal").value = settings.goal;
+
+  const goalSelect = $("#goal-select");
+  const goalValue = String(settings.goal);
+
+  if (![...goalSelect.options].some((option) => option.value === goalValue)) {
+    const option = document.createElement("option");
+    option.value = goalValue;
+    option.textContent = money(settings.goal);
+    goalSelect.appendChild(option);
+  }
+
+  goalSelect.value = goalValue;
 }
 
 function totals(list = transactions) {
   const receitas = list
     .filter((item) => item.type === "receita")
-    .reduce((sum, item) => sum + item.value, 0);
+    .reduce((sum, item) => sum + Number(item.value || 0), 0);
 
   const despesas = list
     .filter((item) => item.type === "despesa")
-    .reduce((sum, item) => sum + item.value, 0);
+    .reduce((sum, item) => sum + Number(item.value || 0), 0);
 
   const vendas = list.filter((item) => item.type === "receita").length;
   const lucro = receitas - despesas;
@@ -218,7 +399,15 @@ function totals(list = transactions) {
   const roi = despesas ? ((receitas - despesas) / despesas) * 100 : 0;
   const margem = receitas ? (lucro / receitas) * 100 : 0;
 
-  return { receitas, despesas, vendas, lucro, ticket, roi, margem };
+  return {
+    receitas,
+    despesas,
+    vendas,
+    lucro,
+    ticket,
+    roi,
+    margem
+  };
 }
 
 function selectedPeriodTransactions() {
@@ -237,13 +426,16 @@ function renderAll() {
   renderFaturamento();
   renderStock();
   renderInvestments();
-  renderNotes();
   renderChart();
 }
 
 function renderOverview() {
   const total = totals();
-  const activeStock = stock.filter((item) => item.status !== "Vendido" && item.status !== "Entregue").length;
+
+  const activeStock = stock.filter((item) => {
+    return item.status !== "Vendido" && item.status !== "Entregue";
+  }).length;
+
   const goalPercent = Math.min((total.receitas / settings.goal) * 100, 100);
 
   $("#ov-total").textContent = money(total.receitas);
@@ -296,7 +488,12 @@ function renderFaturamento() {
   const list = $("#transaction-list");
 
   if (!transactions.length) {
-    list.innerHTML = `<div class="empty"><strong>Nenhuma movimentação ainda</strong><p>Clique em “Nova Movimentação” para começar.</p></div>`;
+    list.innerHTML = `
+      <div class="empty">
+        <strong>Nenhuma movimentação ainda</strong>
+        <p>Clique em “Nova Movimentação” para começar.</p>
+      </div>
+    `;
     return;
   }
 
@@ -304,20 +501,30 @@ function renderFaturamento() {
     <div class="item-row">
       <div>
         <strong>${escapeHTML(item.desc)}</strong>
-        <small>${item.category} • ${formatDate(item.date)}</small>
+        <small>${escapeHTML(item.category)} • ${formatDate(item.date)}</small>
       </div>
-      <span class="badge ${item.type === "despesa" ? "red" : ""}">${item.type}</span>
-      <strong class="${item.type === "despesa" ? "red" : "green"}">${money(item.value)}</strong>
+
+      <span class="badge ${item.type === "despesa" ? "red" : ""}">
+        ${item.type}
+      </span>
+
+      <strong class="${item.type === "despesa" ? "red" : "green"}">
+        ${money(item.value)}
+      </strong>
     </div>
   `).join("");
 }
 
 function renderStock() {
   const announced = stock.filter((item) => item.status === "Anunciado").length;
-  const sold = stock.filter((item) => item.status === "Vendido" || item.status === "Entregue").length;
+
+  const sold = stock.filter((item) => {
+    return item.status === "Vendido" || item.status === "Entregue";
+  }).length;
+
   const potential = stock
     .filter((item) => item.status !== "Vendido" && item.status !== "Entregue")
-    .reduce((sum, item) => sum + item.price, 0);
+    .reduce((sum, item) => sum + Number(item.price || 0), 0);
 
   $("#st-total").textContent = stock.length;
   $("#st-anunciados").textContent = announced;
@@ -327,7 +534,12 @@ function renderStock() {
   const list = $("#stock-list");
 
   if (!stock.length) {
-    list.innerHTML = `<div class="empty"><strong>Nenhum item cadastrado</strong><p>Adicione contas, carros, itens e produtos.</p></div>`;
+    list.innerHTML = `
+      <div class="empty">
+        <strong>Nenhum item cadastrado</strong>
+        <p>Adicione contas, carros, itens e produtos.</p>
+      </div>
+    `;
     return;
   }
 
@@ -335,21 +547,27 @@ function renderStock() {
     <div class="stock-row">
       <div>
         <strong>${escapeHTML(item.name)}</strong>
-        <small>${item.game}</small>
+        <small>${escapeHTML(item.game)}</small>
       </div>
+
       <div>
         <small>Custo</small>
         <strong>${money(item.cost)}</strong>
       </div>
+
       <div>
         <small>Preço</small>
         <strong>${money(item.price)}</strong>
       </div>
+
       <div>
         <small>Lucro previsto</small>
-        <strong class="green">${money(item.price - item.cost)}</strong>
+        <strong class="green">
+          ${money(Number(item.price || 0) - Number(item.cost || 0))}
+        </strong>
       </div>
-      <span class="badge">${item.status}</span>
+
+      <span class="badge">${escapeHTML(item.status)}</span>
     </div>
   `).join("");
 }
@@ -357,11 +575,11 @@ function renderStock() {
 function renderInvestments() {
   const invested = transactions
     .filter((item) => item.type === "despesa" && item.category === "Investimento")
-    .reduce((sum, item) => sum + item.value, 0);
+    .reduce((sum, item) => sum + Number(item.value || 0), 0);
 
   const retorno = transactions
     .filter((item) => item.type === "receita")
-    .reduce((sum, item) => sum + item.value, 0);
+    .reduce((sum, item) => sum + Number(item.value || 0), 0);
 
   $("#inv-total").textContent = money(invested);
   $("#inv-retorno").textContent = money(retorno);
@@ -369,11 +587,18 @@ function renderInvestments() {
 }
 
 function renderInvestmentList() {
-  const investments = transactions.filter((item) => item.type === "despesa" && item.category === "Investimento");
+  const investments = transactions.filter((item) => {
+    return item.type === "despesa" && item.category === "Investimento";
+  });
+
   const list = $("#investment-list");
 
   if (!investments.length) {
-    list.innerHTML = `<div class="empty"><p>Você ainda não investiu nada</p></div>`;
+    list.innerHTML = `
+      <div class="empty">
+        <p>Você ainda não investiu nada</p>
+      </div>
+    `;
     return;
   }
 
@@ -383,6 +608,7 @@ function renderInvestmentList() {
         <strong>${escapeHTML(item.desc)}</strong>
         <small>${formatDate(item.date)}</small>
       </div>
+
       <strong class="red">${money(item.value)}</strong>
     </div>
   `).join("");
@@ -392,7 +618,11 @@ function renderNotes() {
   const list = $("#notes-list");
 
   if (!notes.length) {
-    list.innerHTML = `<div class="empty"><p>Nenhuma anotação salva ainda.</p></div>`;
+    list.innerHTML = `
+      <div class="empty">
+        <p>Nenhuma anotação salva ainda.</p>
+      </div>
+    `;
     return;
   }
 
@@ -400,7 +630,7 @@ function renderNotes() {
     <div class="item-row">
       <div>
         <strong>${escapeHTML(note.title)}</strong>
-        <small>${note.date}</small>
+        <small>${note.date || ""}</small>
         <p>${escapeHTML(note.text)}</p>
       </div>
     </div>
@@ -412,15 +642,22 @@ function renderChart() {
   if (!canvas) return;
 
   const year = new Date().getFullYear();
+
   const receitas = Array(12).fill(0);
   const despesas = Array(12).fill(0);
 
   transactions.forEach((item) => {
     const date = new Date(`${item.date}T00:00:00`);
+
     if (date.getFullYear() !== year) return;
 
-    if (item.type === "receita") receitas[date.getMonth()] += item.value;
-    if (item.type === "despesa") despesas[date.getMonth()] += item.value;
+    if (item.type === "receita") {
+      receitas[date.getMonth()] += Number(item.value || 0);
+    }
+
+    if (item.type === "despesa") {
+      despesas[date.getMonth()] += Number(item.value || 0);
+    }
   });
 
   if (monthlyChart) {
@@ -430,7 +667,20 @@ function renderChart() {
   monthlyChart = new Chart(canvas, {
     type: "line",
     data: {
-      labels: ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"],
+      labels: [
+        "Jan",
+        "Fev",
+        "Mar",
+        "Abr",
+        "Mai",
+        "Jun",
+        "Jul",
+        "Ago",
+        "Set",
+        "Out",
+        "Nov",
+        "Dez"
+      ],
       datasets: [
         {
           label: "Receitas",
@@ -461,15 +711,21 @@ function renderChart() {
       },
       scales: {
         x: {
-          ticks: { color: "#9a9a9a" },
-          grid: { color: "rgba(255,255,255,.06)" }
+          ticks: {
+            color: "#9a9a9a"
+          },
+          grid: {
+            color: "rgba(255,255,255,.06)"
+          }
         },
         y: {
           ticks: {
             color: "#9a9a9a",
             callback: (value) => money(value)
           },
-          grid: { color: "rgba(255,255,255,.06)" }
+          grid: {
+            color: "rgba(255,255,255,.06)"
+          }
         }
       }
     }
@@ -477,16 +733,16 @@ function renderChart() {
 }
 
 function formatDate(dateString) {
+  if (!dateString) return "";
+
   return new Date(`${dateString}T00:00:00`).toLocaleDateString("pt-BR");
 }
 
 function escapeHTML(text) {
-  return String(text)
+  return String(text ?? "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
 }
-
-document.addEventListener("DOMContentLoaded", init);
