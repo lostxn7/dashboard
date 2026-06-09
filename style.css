@@ -582,7 +582,7 @@ textarea {
 
 .stock-board {
   display: grid;
-  grid-template-columns: repeat(5, minmax(240px, 1fr));
+  grid-template-columns: repeat(5, minmax(250px, 1fr));
   gap: 16px;
   align-items: start;
 }
@@ -609,27 +609,95 @@ textarea {
   border: 1px solid var(--border);
 }
 
-.stock-card h4 {
-  margin: 0 0 6px;
-  font-size: 15px;
-}
-
 .stock-card p {
-  margin: 0;
+  margin: 0 0 6px;
   color: var(--muted);
   font-size: 12px;
-}
-
-.stock-card .stock-actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 12px;
 }
 
 .stock-card select {
   margin-top: 10px;
   padding: 9px;
   border-radius: 12px;
+}
+
+.stock-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.stock-card-head h4 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.stock-card-head span {
+  font-size: 11px;
+  color: #fff;
+  background: rgba(255,255,255,.08);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 8px;
+}
+
+.stock-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.credential-box,
+.credential-preview {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 9px;
+  border-radius: 13px;
+  background: rgba(255,255,255,.04);
+  border: 1px solid var(--border);
+  margin-bottom: 8px;
+}
+
+.credential-preview {
+  grid-template-columns: 120px 1fr;
+}
+
+.credential-box small,
+.credential-preview span {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  margin-bottom: 3px;
+}
+
+.credential-box code,
+.credential-preview code {
+  display: block;
+  color: #fff;
+  font-family: Consolas, monospace;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.mini-copy {
+  border: 0;
+  border-radius: 10px;
+  background: #fff;
+  color: #050505;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.mini-copy:hover {
+  filter: brightness(.9);
 }
 
 .note-form {
@@ -772,11 +840,7 @@ hr {
 
 .bulk-preview-item strong {
   display: block;
-  margin-bottom: 4px;
-}
-
-.bulk-preview-item small {
-  color: var(--muted);
+  margin-bottom: 10px;
 }
 
 canvas {
@@ -790,7 +854,7 @@ canvas {
   }
 
   .stock-board {
-    grid-template-columns: repeat(2, minmax(240px, 1fr));
+    grid-template-columns: repeat(2, minmax(250px, 1fr));
   }
 }
 
@@ -828,5 +892,9 @@ canvas {
 
   .bulk-actions {
     flex-direction: column;
+  }
+
+  .credential-preview {
+    grid-template-columns: 1fr;
   }
 }

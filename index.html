@@ -305,7 +305,7 @@
               <option value="Outro">Outro</option>
             </select>
 
-            <input id="stock-search" placeholder="Buscar conta, produto ou observação..." />
+            <input id="stock-search" placeholder="Buscar login, produto ou observação..." />
           </div>
         </section>
 
@@ -622,16 +622,28 @@
       <div class="modal-head">
         <div>
           <h2 id="stock-modal-title">Novo item</h2>
-          <p>Não salve senhas aqui. Use apenas controle de estoque.</p>
+          <p>Login e senha ficam separados para copiar sem espaço.</p>
         </div>
         <button type="button" class="close" data-close="stock-modal">×</button>
       </div>
 
       <input id="stock-edit-id" type="hidden" />
 
+      <div class="form-grid">
+        <label>
+          Login / Username
+          <input id="stock-login" placeholder="NightCruisern" required />
+        </label>
+
+        <label>
+          Senha
+          <input id="stock-password" placeholder="Hm9qL35wX2" />
+        </label>
+      </div>
+
       <label>
         Nome do item
-        <input id="stock-name" placeholder="Conta 3M Cash" required />
+        <input id="stock-name" placeholder="Opcional. Ex: Conta 3M Cash" />
       </label>
 
       <div class="form-grid">
@@ -710,7 +722,7 @@
       <div class="modal-head">
         <div>
           <h2>Importar estoque em massa</h2>
-          <p>Cole várias contas linha por linha para cadastrar tudo de uma vez.</p>
+          <p>Cole várias contas no formato login:senha. O sistema remove espaços automaticamente.</p>
         </div>
         <button type="button" class="close" data-close="bulk-stock-modal">×</button>
       </div>

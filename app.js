@@ -350,6 +350,32 @@ function setupForms() {
 }
 
 async function handleGlobalClicks(event) {
+  const copyButton = event.target.closest("[data-copy]");
+  if (copyButton) {
+    const text = decodeURIComponent(copyButton.dataset.copy || "").trim();
+
+    if (!text) {
+      alert("Nada para copiar.");
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(text);
+
+      const oldText = copyButton.textContent;
+      copyButton.textContent = "Copiado";
+
+      setTimeout(() => {
+        copyButton.textContent = oldText;
+      }, 900);
+    } catch (error) {
+      console.error(error);
+      alert("Não foi possível copiar.");
+    }
+
+    return;
+  }
+
   const deleteStockButton = event.target.closest("[data-delete-stock]");
   if (deleteStockButton) {
     if (!confirm("Excluir esse item do estoque?")) return;
@@ -492,9 +518,15 @@ async function saveStockItem(event) {
 
   try {
     const id = $("#stock-edit-id").value;
+    const login = $("#stock-login").value.trim();
+    const password = $("#stock-password").value.trim();
+    const customName = $("#stock-name").value.trim();
 
     const payload = {
-      name: $("#stock-name").value.trim(),
+      name: customName || login,
+      login,
+      password,
+      raw: password ? `${login}:${password}` : login,
       game: $("#stock-game").value,
       category: $("#stock-category").value,
       status: $("#stock-status").value,
@@ -556,7 +588,9 @@ async function saveBulkStock(event) {
 
     const promises = items.map((item) => {
       return addDoc(collection(db, "stock"), {
-        name: item.name,
+        name: item.login,
+        login: item.login,
+        password: item.password,
         game,
         category,
         status,
@@ -651,21 +685,26 @@ function parseBulkStock() {
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => {
-      const cleanLine = line.replace(/\s+/g, " ");
+      const cleanLine = line.replace(/\s+/g, " ").trim();
 
-      let name = cleanLine;
-      let note = "";
+      let login = cleanLine;
+      let password = "";
 
       if (cleanLine.includes(":")) {
         const parts = cleanLine.split(":");
-        name = parts[0].trim();
-        note = parts.slice(1).join(":").trim();
+        login = parts[0].trim();
+        password = parts.slice(1).join(":").trim();
       }
 
+      login = login.trim();
+      password = password.trim();
+
       return {
-        name,
-        note,
-        raw: line
+        login,
+        password,
+        name: login,
+        note: password ? `Senha: ${password}` : "",
+        raw: password ? `${login}:${password}` : login
       };
     });
 }
@@ -682,12 +721,30 @@ function renderBulkPreview(items) {
     return;
   }
 
-  $("#bulk-preview").innerHTML = items.map((item, index) => `
-    <div class="bulk-preview-item">
-      <strong>Item #${index + 1}: ${escapeHTML(item.name)}</strong>
-      <small>${item.note ? `Obs: ${escapeHTML(item.note)}` : "Sem observação"}</small>
-    </div>
-  `).join("");
+  $("#bulk-preview").innerHTML = items.map((item, index) => {
+    const ggmaxFormat = item.password ? `${item.login}:${item.password}` : item.login;
+
+    return `
+      <div class="bulk-preview-item">
+        <strong>Item #${index + 1}</strong>
+
+        <div class="credential-preview">
+          <span>Login</span>
+          <code>${escapeHTML(item.login)}</code>
+        </div>
+
+        <div class="credential-preview">
+          <span>Senha</span>
+          <code>${escapeHTML(item.password || "Sem senha")}</code>
+        </div>
+
+        <div class="credential-preview">
+          <span>Formato GGMAX</span>
+          <code>${escapeHTML(ggmaxFormat)}</code>
+        </div>
+      </div>
+    `;
+  }).join("");
 }
 
 async function deleteCollection(collectionName) {
@@ -716,6 +773,8 @@ function resetStockForm() {
 function fillStockForm(item) {
   $("#stock-modal-title").textContent = "Editar item";
   $("#stock-edit-id").value = item.id;
+  $("#stock-login").value = item.login || item.name || "";
+  $("#stock-password").value = item.password || "";
   $("#stock-name").value = item.name || "";
   $("#stock-game").value = item.game || "Jailbreak";
   $("#stock-category").value = item.category || "Outro";
@@ -934,7 +993,7 @@ function renderStock() {
 
   if (search) {
     filtered = filtered.filter((item) => {
-      return `${item.name} ${item.game} ${item.category} ${item.note}`.toLowerCase().includes(search);
+      return `${item.name} ${item.login} ${item.password} ${item.game} ${item.category} ${item.note}`.toLowerCase().includes(search);
     });
   }
 
@@ -961,26 +1020,59 @@ function renderStockColumn(elementId, items) {
     return;
   }
 
-  element.innerHTML = items.map((item) => `
-    <div class="stock-card">
-      <h4>${escapeHTML(item.name)}</h4>
-      <p>${escapeHTML(item.game || "")} • ${escapeHTML(item.category || "")}</p>
-      <p>${escapeHTML(item.platform || "")}</p>
-      <p>Custo: ${money(item.cost)} • Preço: ${money(item.price)}</p>
-      ${item.note ? `<p>Obs: ${escapeHTML(item.note)}</p>` : ""}
+  element.innerHTML = items.map((item) => {
+    const login = String(item.login || item.name || "").trim();
+    const password = String(item.password || "").trim();
+    const ggmaxFormat = password ? `${login}:${password}` : login;
 
-      <select data-stock-status="${item.id}">
-        ${["Pronta", "Farmando", "Anunciada", "Vendida", "Entregue", "Problema"].map((status) => {
-          return `<option value="${status}" ${item.status === status ? "selected" : ""}>${status}</option>`;
-        }).join("")}
-      </select>
+    return `
+      <div class="stock-card">
+        <div class="stock-card-head">
+          <h4>${escapeHTML(login)}</h4>
+          <span>${escapeHTML(item.category || "")}</span>
+        </div>
 
-      <div class="stock-actions">
-        <button class="ghost" data-edit-stock="${item.id}">Editar</button>
-        <button class="icon-btn" data-delete-stock="${item.id}">×</button>
+        <div class="credential-box">
+          <div>
+            <small>Login</small>
+            <code>${escapeHTML(login)}</code>
+          </div>
+          <button class="mini-copy" data-copy="${encodeURIComponent(login)}">Copiar</button>
+        </div>
+
+        <div class="credential-box">
+          <div>
+            <small>Senha</small>
+            <code>${escapeHTML(password || "Sem senha")}</code>
+          </div>
+          <button class="mini-copy" data-copy="${encodeURIComponent(password)}">Copiar</button>
+        </div>
+
+        <div class="credential-box">
+          <div>
+            <small>Formato GGMAX</small>
+            <code>${escapeHTML(ggmaxFormat)}</code>
+          </div>
+          <button class="mini-copy" data-copy="${encodeURIComponent(ggmaxFormat)}">Copiar</button>
+        </div>
+
+        <p>${escapeHTML(item.game || "")} • ${escapeHTML(item.platform || "")}</p>
+        <p>Custo: ${money(item.cost)} • Preço: ${money(item.price)}</p>
+        ${item.note ? `<p>Obs: ${escapeHTML(item.note)}</p>` : ""}
+
+        <select data-stock-status="${item.id}">
+          ${["Pronta", "Farmando", "Anunciada", "Vendida", "Entregue", "Problema"].map((status) => {
+            return `<option value="${status}" ${item.status === status ? "selected" : ""}>${status}</option>`;
+          }).join("")}
+        </select>
+
+        <div class="stock-actions">
+          <button class="ghost" data-edit-stock="${item.id}">Editar</button>
+          <button class="icon-btn" data-delete-stock="${item.id}">×</button>
+        </div>
       </div>
-    </div>
-  `).join("");
+    `;
+  }).join("");
 }
 
 function renderInvestments() {
