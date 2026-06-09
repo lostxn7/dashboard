@@ -18,6 +18,7 @@ import {
   getDocs,
   onSnapshot,
   deleteDoc,
+  updateDoc,
   serverTimestamp,
   query,
   orderBy
@@ -55,26 +56,13 @@ let settings = {
   goal: 5000
 };
 
-let currentMode = "single";
 let monthlyChart;
 let unsubscribers = [];
-let savingTransaction = false;
-let savingStock = false;
-let batchRows = [];
+let saving = false;
 
 const months = [
-  "Janeiro",
-  "Fevereiro",
-  "Março",
-  "Abril",
-  "Maio",
-  "Junho",
-  "Julho",
-  "Agosto",
-  "Setembro",
-  "Outubro",
-  "Novembro",
-  "Dezembro"
+  "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+  "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
 ];
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -83,8 +71,8 @@ document.addEventListener("DOMContentLoaded", () => {
   setupFilters();
   setupModals();
   setupForms();
-  setupFeePreview();
-  setupBatchMode();
+  setupStockFilters();
+  setupCalculator();
   listenAuth();
 });
 
@@ -96,7 +84,7 @@ function setupLogin() {
       await signInWithPopup(auth, provider);
     } catch (error) {
       console.error(error);
-      $("#login-status").textContent = "Erro ao entrar. Confira se o login Google está ativado no Firebase.";
+      $("#login-status").textContent = "Erro ao entrar. Confira o Firebase.";
     }
   });
 
@@ -118,15 +106,14 @@ function listenAuth() {
 
     if (!allowed) {
       await signOut(auth);
-      showLogin(`Acesso negado para ${user.email}. Esse email não está permitido.`);
+      showLogin(`Acesso negado para ${user.email}.`);
       return;
     }
 
     $("#user-email").textContent = user.email;
-    $("#welcome-title").textContent = `Olá, ${user.displayName || "JH Store"} 👋`;
+    $("#welcome-title").textContent = settings.name || "JH Store";
 
     showApp();
-
     await ensureDefaultSettings();
     startFirestoreListeners();
   });
@@ -135,14 +122,8 @@ function listenAuth() {
 async function isAllowedUser(email) {
   if (!email) return false;
 
-  try {
-    const allowedDoc = await getDoc(doc(db, "allowedUsers", email));
-    return allowedDoc.exists();
-  } catch (error) {
-    console.error(error);
-    $("#login-status").textContent = "Erro ao verificar permissão. Confira as regras do Firestore.";
-    return false;
-  }
+  const allowedDoc = await getDoc(doc(db, "allowedUsers", email));
+  return allowedDoc.exists();
 }
 
 function showLogin(message) {
@@ -208,6 +189,7 @@ function startFirestoreListeners() {
         goal: Number(snapshot.data().goal || 5000)
       };
 
+      $("#welcome-title").textContent = settings.name;
       setupSettingsValues();
       renderAll();
     }
@@ -222,70 +204,70 @@ function stopListeners() {
 function setupNavigation() {
   $$(".nav-item").forEach((button) => {
     button.addEventListener("click", () => {
-      $$(".nav-item").forEach((item) => item.classList.remove("active"));
-      $$(".page").forEach((page) => page.classList.remove("active"));
+      openPage(button.dataset.page);
+    });
+  });
 
-      button.classList.add("active");
-      $(`#${button.dataset.page}`).classList.add("active");
-
-      if (button.dataset.page === "faturamento") {
-        setTimeout(renderChart, 60);
-      }
+  $$("[data-open-page]").forEach((button) => {
+    button.addEventListener("click", () => {
+      openPage(button.dataset.openPage);
     });
   });
 }
 
+function openPage(pageName) {
+  $$(".nav-item").forEach((item) => {
+    item.classList.toggle("active", item.dataset.page === pageName);
+  });
+
+  $$(".page").forEach((page) => {
+    page.classList.toggle("active", page.id === pageName);
+  });
+
+  if (pageName === "dashboard") {
+    setTimeout(renderChart, 60);
+  }
+}
+
 function setupFilters() {
-  const monthFilter = $("#month-filter");
-  const yearFilter = $("#year-filter");
   const current = new Date();
 
-  monthFilter.innerHTML = months.map((m, index) => {
+  $("#month-filter").innerHTML = months.map((m, index) => {
     return `<option value="${index}" ${index === current.getMonth() ? "selected" : ""}>${m}</option>`;
   }).join("");
 
   const year = current.getFullYear();
 
-  yearFilter.innerHTML = [year - 1, year, year + 1].map((y) => {
+  $("#year-filter").innerHTML = [year - 1, year, year + 1].map((y) => {
     return `<option value="${y}" ${y === year ? "selected" : ""}>${y}</option>`;
   }).join("");
 
-  monthFilter.addEventListener("change", renderAll);
-  yearFilter.addEventListener("change", renderAll);
+  $("#month-filter").addEventListener("change", renderAll);
+  $("#year-filter").addEventListener("change", renderAll);
 }
 
 function setupModals() {
+  const today = new Date().toISOString().slice(0, 10);
+
+  $("#open-daily-close-modal").addEventListener("click", () => {
+    $("#daily-date").value = today;
+    $("#daily-close-modal").showModal();
+    updateDailyPreview();
+  });
+
   $("#open-transaction-modal").addEventListener("click", () => {
-    const today = new Date().toISOString().slice(0, 10);
-
     $("#tr-date").value = today;
-    $("#batch-date").value = today;
-
-    if (!batchRows.length) {
-      addBatchRow("Conta 3M Cash", 18.90);
-      addBatchRow("Conta 2M Cash", 8.90);
-    }
-
     $("#transaction-modal").showModal();
-    updateFeePreview();
-    renderBatchRows();
   });
 
   $("#open-stock-modal").addEventListener("click", () => {
+    resetStockForm();
     $("#stock-modal").showModal();
   });
 
-  $("#quick-investment").addEventListener("click", () => {
-    setMode("single");
-
-    $("#tr-type").value = "despesa";
-    $("#tr-category").value = "Investimento";
-    $("#tr-ad-fee-percent").value = "0";
-    $("#tr-plan-fee-percent").value = "0";
-    $("#tr-date").value = new Date().toISOString().slice(0, 10);
-
-    $("#transaction-modal").showModal();
-    updateFeePreview();
+  $("#open-investment-modal").addEventListener("click", () => {
+    $("#investment-date").value = today;
+    $("#investment-modal").showModal();
   });
 
   $$("[data-close]").forEach((button) => {
@@ -293,262 +275,27 @@ function setupModals() {
       $(`#${button.dataset.close}`).close();
     });
   });
-}
 
-function setupFeePreview() {
-  $("#tr-gross-value").addEventListener("input", updateFeePreview);
-  $("#tr-ad-fee-percent").addEventListener("input", updateFeePreview);
-  $("#tr-plan-fee-percent").addEventListener("input", updateFeePreview);
-  $("#tr-type").addEventListener("change", updateFeePreview);
-}
-
-function setupBatchMode() {
-  $$(".mode-tab").forEach((button) => {
-    button.addEventListener("click", () => {
-      setMode(button.dataset.mode);
-    });
-  });
-
-  $("#add-sale-row").addEventListener("click", () => {
-    addBatchRow("", 0);
-    renderBatchRows();
-  });
-
-  $("#batch-sales-list").addEventListener("input", (event) => {
-    const row = event.target.closest("[data-row-id]");
-    if (!row) return;
-
-    const rowId = row.dataset.rowId;
-    const item = batchRows.find((sale) => sale.id === rowId);
-
-    if (!item) return;
-
-    if (event.target.dataset.field === "desc") {
-      item.desc = event.target.value;
-    }
-
-    if (event.target.dataset.field === "grossValue") {
-      item.grossValue = Number(event.target.value || 0);
-    }
-
-    updateBatchTotal();
-  });
-
-  $("#batch-sales-list").addEventListener("click", (event) => {
-    const button = event.target.closest("[data-remove-row]");
-    if (!button) return;
-
-    batchRows = batchRows.filter((sale) => sale.id !== button.dataset.removeRow);
-
-    if (!batchRows.length) {
-      addBatchRow("", 0);
-    }
-
-    renderBatchRows();
-  });
-
-  $("#batch-ad-fee-percent").addEventListener("input", updateBatchTotal);
-  $("#batch-plan-fee-percent").addEventListener("input", updateBatchTotal);
-}
-
-function setMode(mode) {
-  currentMode = mode;
-
-  $$(".mode-tab").forEach((button) => {
-    button.classList.toggle("active", button.dataset.mode === mode);
-  });
-
-  $("#single-mode").classList.toggle("hidden", mode !== "single");
-  $("#batch-mode").classList.toggle("hidden", mode !== "batch");
-
-  $("#save-transaction-btn").textContent = mode === "batch" ? "Salvar todas as vendas" : "Salvar movimentação";
-}
-
-function addBatchRow(desc = "", grossValue = 0) {
-  batchRows.push({
-    id: crypto.randomUUID(),
-    desc,
-    grossValue
-  });
-}
-
-function renderBatchRows() {
-  const list = $("#batch-sales-list");
-
-  list.innerHTML = batchRows.map((row, index) => `
-    <div class="batch-row" data-row-id="${row.id}">
-      <label>
-        Descrição da venda ${index + 1}
-        <input data-field="desc" value="${escapeHTML(row.desc)}" placeholder="Ex: Conta 3M Cash" />
-      </label>
-
-      <label>
-        Valor bruto
-        <input data-field="grossValue" type="number" step="0.01" min="0" value="${row.grossValue || ""}" placeholder="18.90" />
-      </label>
-
-      <button type="button" class="icon-btn" data-remove-row="${row.id}" title="Remover linha">
-        ×
-      </button>
-    </div>
-  `).join("");
-
-  updateBatchTotal();
-}
-
-function calculateFee(grossValue, adFeePercent, planFeePercent) {
-  const totalFeePercent = Number(adFeePercent || 0) + Number(planFeePercent || 0);
-  const feeValue = Number(grossValue || 0) * (totalFeePercent / 100);
-  const netValue = Math.max(Number(grossValue || 0) - feeValue, 0);
-
-  return {
-    totalFeePercent,
-    feeValue,
-    netValue
-  };
-}
-
-function updateFeePreview() {
-  const type = $("#tr-type").value;
-  const grossValue = Number($("#tr-gross-value").value || 0);
-  const adFeePercent = type === "receita" ? Number($("#tr-ad-fee-percent").value || 0) : 0;
-  const planFeePercent = type === "receita" ? Number($("#tr-plan-fee-percent").value || 0) : 0;
-  const result = calculateFee(grossValue, adFeePercent, planFeePercent);
-
-  $("#total-fee-percent-preview").textContent = percent(result.totalFeePercent);
-  $("#fee-value-preview").textContent = money(type === "receita" ? result.feeValue : 0);
-  $("#net-value-preview").textContent = money(type === "receita" ? result.netValue : grossValue);
-
-  const disabled = type === "despesa";
-
-  $("#ad-fee-field").style.opacity = disabled ? ".45" : "1";
-  $("#plan-fee-field").style.opacity = disabled ? ".45" : "1";
-  $("#tr-ad-fee-percent").disabled = disabled;
-  $("#tr-plan-fee-percent").disabled = disabled;
-}
-
-function updateBatchTotal() {
-  const adFeePercent = Number($("#batch-ad-fee-percent").value || 0);
-  const planFeePercent = Number($("#batch-plan-fee-percent").value || 0);
-
-  let gross = 0;
-  let fees = 0;
-  let net = 0;
-
-  batchRows.forEach((row) => {
-    const result = calculateFee(row.grossValue, adFeePercent, planFeePercent);
-
-    gross += Number(row.grossValue || 0);
-    fees += result.feeValue;
-    net += result.netValue;
-  });
-
-  $("#batch-total-gross").textContent = money(gross);
-  $("#batch-total-fees").textContent = money(fees);
-  $("#batch-total-net").textContent = money(net);
+  $("#daily-gross").addEventListener("input", updateDailyPreview);
+  $("#daily-net").addEventListener("input", updateDailyPreview);
+  $("#daily-sales-count").addEventListener("input", updateDailyPreview);
 }
 
 function setupForms() {
-  $("#transaction-form").addEventListener("submit", async (event) => {
-    event.preventDefault();
+  $("#daily-close-form").addEventListener("submit", saveDailyClose);
+  $("#transaction-form").addEventListener("submit", saveManualTransaction);
+  $("#stock-form").addEventListener("submit", saveStockItem);
+  $("#investment-form").addEventListener("submit", saveInvestment);
 
-    if (savingTransaction) return;
-
-    savingTransaction = true;
-    const saveButton = $("#save-transaction-btn");
-    saveButton.disabled = true;
-    saveButton.textContent = currentMode === "batch" ? "Salvando vendas..." : "Salvando...";
-
-    try {
-      if (currentMode === "batch") {
-        await saveBatchSales();
-      } else {
-        await saveSingleTransaction();
-      }
-
-      event.target.reset();
-      $("#transaction-modal").close();
-
-      const today = new Date().toISOString().slice(0, 10);
-      $("#tr-date").value = today;
-      $("#batch-date").value = today;
-      $("#tr-ad-fee-percent").value = "12.99";
-      $("#tr-plan-fee-percent").value = "2.99";
-      $("#batch-ad-fee-percent").value = "12.99";
-      $("#batch-plan-fee-percent").value = "2.99";
-
-      batchRows = [];
-      addBatchRow("Conta 3M Cash", 18.90);
-      addBatchRow("Conta 2M Cash", 8.90);
-
-      updateFeePreview();
-      renderBatchRows();
-    } catch (error) {
-      console.error(error);
-      alert("Erro ao salvar movimentação.");
-    } finally {
-      savingTransaction = false;
-      saveButton.disabled = false;
-      saveButton.textContent = currentMode === "batch" ? "Salvar todas as vendas" : "Salvar movimentação";
-    }
-  });
-
-  $("#stock-form").addEventListener("submit", async (event) => {
-    event.preventDefault();
-
-    if (savingStock) return;
-
-    savingStock = true;
-    const saveButton = $("#save-stock-btn");
-    saveButton.disabled = true;
-    saveButton.textContent = "Salvando...";
-
-    try {
-      await addDoc(collection(db, "stock"), {
-        name: $("#stock-name").value.trim(),
-        game: $("#stock-game").value,
-        cost: Number($("#stock-cost").value || 0),
-        price: Number($("#stock-price").value || 0),
-        status: $("#stock-status").value,
-        createdAt: serverTimestamp()
-      });
-
-      event.target.reset();
-      $("#stock-modal").close();
-    } catch (error) {
-      console.error(error);
-      alert("Erro ao salvar item.");
-    } finally {
-      savingStock = false;
-      saveButton.disabled = false;
-      saveButton.textContent = "Salvar item";
-    }
-  });
-
-  $("#add-note").addEventListener("click", async () => {
-    const title = $("#note-title").value.trim();
-    const text = $("#note-text").value.trim();
-
-    if (!title || !text) return;
-
-    await addDoc(collection(db, "notes"), {
-      title,
-      text,
-      date: new Date().toLocaleDateString("pt-BR"),
-      createdAt: serverTimestamp()
-    });
-
-    $("#note-title").value = "";
-    $("#note-text").value = "";
-  });
+  $("#add-note").addEventListener("click", saveNote);
 
   $("#clear-transactions").addEventListener("click", async () => {
-    if (!confirm("Tem certeza que deseja apagar TODAS as movimentações?")) return;
+    if (!confirm("Apagar todas as movimentações?")) return;
     await deleteCollection("transactions");
   });
 
   $("#clear-stock").addEventListener("click", async () => {
-    if (!confirm("Tem certeza que deseja apagar todo o estoque?")) return;
+    if (!confirm("Apagar todo o estoque?")) return;
     await deleteCollection("stock");
   });
 
@@ -556,23 +303,24 @@ function setupForms() {
     const button = event.target.closest("[data-delete-transaction]");
     if (!button) return;
 
-    const id = button.dataset.deleteTransaction;
+    if (!confirm("Excluir essa movimentação?")) return;
 
-    if (!confirm("Excluir somente essa movimentação?")) return;
-
-    await deleteDoc(doc(db, "transactions", id));
+    await deleteDoc(doc(db, "transactions", button.dataset.deleteTransaction));
   });
 
-  $("#stock-list").addEventListener("click", async (event) => {
-    const button = event.target.closest("[data-delete-stock]");
+  $("#all-investments-list").addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-delete-transaction]");
     if (!button) return;
 
-    const id = button.dataset.deleteStock;
+    if (!confirm("Excluir esse investimento?")) return;
 
-    if (!confirm("Excluir somente esse item do estoque?")) return;
-
-    await deleteDoc(doc(db, "stock", id));
+    await deleteDoc(doc(db, "transactions", button.dataset.deleteTransaction));
   });
+
+  $("#stock-ready, #stock-farming, #stock-listed, #stock-sold, #stock-problem").forEach?.(() => {});
+
+  document.addEventListener("click", handleGlobalClicks);
+  document.addEventListener("change", handleGlobalChanges);
 
   $("#goal-select").addEventListener("change", async () => {
     settings.goal = Number($("#goal-select").value);
@@ -582,92 +330,245 @@ function setupForms() {
   $("#save-settings").addEventListener("click", async () => {
     settings.name = $("#setting-name").value.trim() || "JH Store";
     settings.goal = Number($("#setting-goal").value || 5000);
-
     await saveSettings();
-
     alert("Configurações salvas!");
   });
 }
 
-async function saveSingleTransaction() {
-  const type = $("#tr-type").value;
-  const grossValue = Number($("#tr-gross-value").value || 0);
-  const adFeePercent = type === "receita" ? Number($("#tr-ad-fee-percent").value || 0) : 0;
-  const planFeePercent = type === "receita" ? Number($("#tr-plan-fee-percent").value || 0) : 0;
-  const result = calculateFee(grossValue, adFeePercent, planFeePercent);
-  const netValue = type === "receita" ? result.netValue : grossValue;
-  const feeValue = type === "receita" ? result.feeValue : 0;
-  const totalFeePercent = type === "receita" ? result.totalFeePercent : 0;
-
-  if (!$("#tr-desc").value.trim()) {
-    alert("Preencha a descrição.");
+async function handleGlobalClicks(event) {
+  const deleteStockButton = event.target.closest("[data-delete-stock]");
+  if (deleteStockButton) {
+    if (!confirm("Excluir esse item do estoque?")) return;
+    await deleteDoc(doc(db, "stock", deleteStockButton.dataset.deleteStock));
     return;
   }
 
-  if (!grossValue) {
-    alert("Preencha o valor bruto.");
-    return;
-  }
+  const editStockButton = event.target.closest("[data-edit-stock]");
+  if (editStockButton) {
+    const item = stock.find((stockItem) => stockItem.id === editStockButton.dataset.editStock);
+    if (!item) return;
 
-  await addDoc(collection(db, "transactions"), {
-    type,
-    category: $("#tr-category").value,
-    desc: $("#tr-desc").value.trim(),
-    grossValue,
-    adFeePercent,
-    planFeePercent,
-    totalFeePercent,
-    feeValue,
-    value: netValue,
-    date: $("#tr-date").value,
-    createdAt: serverTimestamp()
+    fillStockForm(item);
+    $("#stock-modal").showModal();
+  }
+}
+
+async function handleGlobalChanges(event) {
+  const statusSelect = event.target.closest("[data-stock-status]");
+  if (!statusSelect) return;
+
+  const id = statusSelect.dataset.stockStatus;
+  await updateDoc(doc(db, "stock", id), {
+    status: statusSelect.value,
+    soldAt: statusSelect.value === "Vendida" ? new Date().toISOString().slice(0, 10) : null,
+    updatedAt: serverTimestamp()
   });
 }
 
-async function saveBatchSales() {
-  const validRows = batchRows.filter((row) => {
-    return row.desc.trim() && Number(row.grossValue || 0) > 0;
-  });
+function updateDailyPreview() {
+  const gross = Number($("#daily-gross").value || 0);
+  const net = Number($("#daily-net").value || 0);
+  const count = Number($("#daily-sales-count").value || 0);
+  const fee = Math.max(gross - net, 0);
+  const feePercent = gross ? (fee / gross) * 100 : 0;
+  const ticket = count ? net / count : 0;
 
-  if (!validRows.length) {
-    alert("Adicione pelo menos uma venda válida.");
-    return;
-  }
+  $("#daily-fee-value").textContent = money(fee);
+  $("#daily-fee-percent").textContent = percent(feePercent);
+  $("#daily-ticket").textContent = money(ticket);
+}
 
-  const date = $("#batch-date").value;
-  const category = $("#batch-category").value;
-  const adFeePercent = Number($("#batch-ad-fee-percent").value || 0);
-  const planFeePercent = Number($("#batch-plan-fee-percent").value || 0);
+async function saveDailyClose(event) {
+  event.preventDefault();
 
-  const promises = validRows.map((row) => {
-    const grossValue = Number(row.grossValue || 0);
-    const result = calculateFee(grossValue, adFeePercent, planFeePercent);
+  if (saving) return;
+  saving = true;
 
-    return addDoc(collection(db, "transactions"), {
+  const button = $("#save-daily-close-btn");
+  button.disabled = true;
+  button.textContent = "Salvando...";
+
+  try {
+    const gross = Number($("#daily-gross").value || 0);
+    const net = Number($("#daily-net").value || 0);
+    const count = Number($("#daily-sales-count").value || 1);
+    const fee = Math.max(gross - net, 0);
+    const feePercent = gross ? (fee / gross) * 100 : 0;
+
+    await addDoc(collection(db, "transactions"), {
       type: "receita",
-      category,
-      desc: row.desc.trim(),
-      grossValue,
-      adFeePercent,
-      planFeePercent,
-      totalFeePercent: result.totalFeePercent,
-      feeValue: result.feeValue,
-      value: result.netValue,
-      date,
+      mode: "dailyClose",
+      category: "Fechamento diário",
+      desc: `Fechamento ${$("#daily-platform").value}`,
+      platform: $("#daily-platform").value,
+      salesCount: count,
+      grossValue: gross,
+      value: net,
+      feeValue: fee,
+      totalFeePercent: feePercent,
+      date: $("#daily-date").value,
+      note: $("#daily-note").value.trim(),
       createdAt: serverTimestamp()
     });
+
+    event.target.reset();
+    $("#daily-close-modal").close();
+  } catch (error) {
+    console.error(error);
+    alert("Erro ao salvar fechamento.");
+  } finally {
+    saving = false;
+    button.disabled = false;
+    button.textContent = "Salvar fechamento";
+  }
+}
+
+async function saveManualTransaction(event) {
+  event.preventDefault();
+
+  if (saving) return;
+  saving = true;
+
+  const button = $("#save-transaction-btn");
+  button.disabled = true;
+  button.textContent = "Salvando...";
+
+  try {
+    const type = $("#tr-type").value;
+    const gross = Number($("#tr-gross").value || 0);
+    const netInput = Number($("#tr-net").value || 0);
+    const net = netInput || gross;
+    const fee = type === "receita" ? Math.max(gross - net, 0) : 0;
+    const feePercent = gross ? (fee / gross) * 100 : 0;
+
+    await addDoc(collection(db, "transactions"), {
+      type,
+      mode: "manual",
+      category: $("#tr-category").value,
+      desc: $("#tr-desc").value.trim(),
+      grossValue: gross,
+      value: type === "receita" ? net : gross,
+      feeValue: fee,
+      totalFeePercent: feePercent,
+      date: $("#tr-date").value,
+      createdAt: serverTimestamp()
+    });
+
+    event.target.reset();
+    $("#transaction-modal").close();
+  } catch (error) {
+    console.error(error);
+    alert("Erro ao salvar movimentação.");
+  } finally {
+    saving = false;
+    button.disabled = false;
+    button.textContent = "Salvar movimentação";
+  }
+}
+
+async function saveStockItem(event) {
+  event.preventDefault();
+
+  if (saving) return;
+  saving = true;
+
+  const button = $("#save-stock-btn");
+  button.disabled = true;
+  button.textContent = "Salvando...";
+
+  try {
+    const id = $("#stock-edit-id").value;
+
+    const payload = {
+      name: $("#stock-name").value.trim(),
+      game: $("#stock-game").value,
+      category: $("#stock-category").value,
+      status: $("#stock-status").value,
+      platform: $("#stock-platform").value,
+      cost: Number($("#stock-cost").value || 0),
+      price: Number($("#stock-price").value || 0),
+      note: $("#stock-note").value.trim(),
+      updatedAt: serverTimestamp()
+    };
+
+    if (id) {
+      await updateDoc(doc(db, "stock", id), payload);
+    } else {
+      await addDoc(collection(db, "stock"), {
+        ...payload,
+        createdAt: serverTimestamp()
+      });
+    }
+
+    resetStockForm();
+    $("#stock-modal").close();
+  } catch (error) {
+    console.error(error);
+    alert("Erro ao salvar item.");
+  } finally {
+    saving = false;
+    button.disabled = false;
+    button.textContent = "Salvar item";
+  }
+}
+
+async function saveInvestment(event) {
+  event.preventDefault();
+
+  if (saving) return;
+  saving = true;
+
+  const button = $("#save-investment-btn");
+  button.disabled = true;
+  button.textContent = "Salvando...";
+
+  try {
+    await addDoc(collection(db, "transactions"), {
+      type: "despesa",
+      mode: "investment",
+      category: "Investimento",
+      investmentType: $("#investment-type").value,
+      desc: $("#investment-desc").value.trim(),
+      grossValue: Number($("#investment-value").value || 0),
+      value: Number($("#investment-value").value || 0),
+      feeValue: 0,
+      totalFeePercent: 0,
+      date: $("#investment-date").value,
+      createdAt: serverTimestamp()
+    });
+
+    event.target.reset();
+    $("#investment-modal").close();
+  } catch (error) {
+    console.error(error);
+    alert("Erro ao salvar investimento.");
+  } finally {
+    saving = false;
+    button.disabled = false;
+    button.textContent = "Salvar investimento";
+  }
+}
+
+async function saveNote() {
+  const title = $("#note-title").value.trim();
+  const text = $("#note-text").value.trim();
+
+  if (!title || !text) return;
+
+  await addDoc(collection(db, "notes"), {
+    title,
+    text,
+    date: new Date().toLocaleDateString("pt-BR"),
+    createdAt: serverTimestamp()
   });
 
-  await Promise.all(promises);
+  $("#note-title").value = "";
+  $("#note-text").value = "";
 }
 
 async function deleteCollection(collectionName) {
   const snapshot = await getDocs(collection(db, collectionName));
-
-  const deletions = snapshot.docs.map((docItem) => {
-    return deleteDoc(doc(db, collectionName, docItem.id));
-  });
-
+  const deletions = snapshot.docs.map((docItem) => deleteDoc(doc(db, collectionName, docItem.id)));
   await Promise.all(deletions);
 }
 
@@ -679,6 +580,26 @@ async function saveSettings() {
   }, {
     merge: true
   });
+}
+
+function resetStockForm() {
+  $("#stock-modal-title").textContent = "Novo item";
+  $("#stock-edit-id").value = "";
+  $("#stock-form").reset();
+  $("#stock-status").value = "Pronta";
+}
+
+function fillStockForm(item) {
+  $("#stock-modal-title").textContent = "Editar item";
+  $("#stock-edit-id").value = item.id;
+  $("#stock-name").value = item.name || "";
+  $("#stock-game").value = item.game || "Jailbreak";
+  $("#stock-category").value = item.category || "Outro";
+  $("#stock-status").value = item.status || "Pronta";
+  $("#stock-platform").value = item.platform || "GGMAX";
+  $("#stock-cost").value = item.cost || "";
+  $("#stock-price").value = item.price || "";
+  $("#stock-note").value = item.note || "";
 }
 
 function setupSettingsValues() {
@@ -696,6 +617,12 @@ function setupSettingsValues() {
   }
 
   goalSelect.value = goalValue;
+}
+
+function setupStockFilters() {
+  $("#stock-status-filter").addEventListener("change", renderStock);
+  $("#stock-category-filter").addEventListener("change", renderStock);
+  $("#stock-search").addEventListener("input", renderStock);
 }
 
 function getNetValue(item) {
@@ -727,11 +654,14 @@ function totals(list = transactions) {
     .filter((item) => item.type === "despesa")
     .reduce((sum, item) => sum + getNetValue(item), 0);
 
-  const vendas = list.filter((item) => item.type === "receita").length;
+  const vendas = list
+    .filter((item) => item.type === "receita")
+    .reduce((sum, item) => sum + Number(item.salesCount || 1), 0);
+
   const lucro = receitas - despesas;
   const ticket = vendas ? receitas / vendas : 0;
+  const taxaMedia = receitasBrutas ? (taxas / receitasBrutas) * 100 : 0;
   const roi = despesas ? ((receitas - despesas) / despesas) * 100 : 0;
-  const margem = receitas ? (lucro / receitas) * 100 : 0;
 
   return {
     receitas,
@@ -741,8 +671,8 @@ function totals(list = transactions) {
     vendas,
     lucro,
     ticket,
-    roi,
-    margem
+    taxaMedia,
+    roi
   };
 }
 
@@ -767,24 +697,29 @@ function renderAll() {
 
 function renderOverview() {
   const total = totals();
-
-  const activeStock = stock.filter((item) => {
-    return item.status !== "Vendido" && item.status !== "Entregue";
-  }).length;
-
-  const goalPercent = Math.min((total.receitas / settings.goal) * 100, 100);
+  const activeStock = stock.filter((item) => !["Vendida", "Entregue"].includes(item.status)).length;
 
   $("#ov-total").textContent = money(total.receitas);
   $("#ov-vendas").textContent = total.vendas;
   $("#ov-lucro").textContent = money(total.lucro);
   $("#ov-estoque").textContent = activeStock;
-  $("#ov-roi").textContent = percent(total.roi);
+  $("#ov-taxa-media").textContent = percent(total.taxaMedia);
 
-  $("#quick-meta").textContent = percent(goalPercent);
-  $("#quick-ticket").textContent = money(total.ticket);
-  $("#quick-investido").textContent = money(total.despesas);
-  $("#quick-progress-text").textContent = percent(goalPercent);
-  $("#quick-progress").style.width = `${goalPercent}%`;
+  $("#sum-ready").textContent = stock.filter((i) => i.status === "Pronta").length;
+  $("#sum-farming").textContent = stock.filter((i) => i.status === "Farmando").length;
+  $("#sum-listed").textContent = stock.filter((i) => i.status === "Anunciada").length;
+  $("#sum-sold").textContent = stock.filter((i) => i.status === "Vendida").length;
+
+  const closings = transactions
+    .filter((item) => item.mode === "dailyClose")
+    .slice(0, 5);
+
+  $("#recent-closings").innerHTML = closings.length ? closings.map(renderTransactionRow).join("") : `
+    <div class="empty">
+      <strong>Nenhum fechamento ainda</strong>
+      <p>Use a aba Faturamento para criar seu primeiro fechamento diário.</p>
+    </div>
+  `;
 }
 
 function renderDashboard() {
@@ -793,8 +728,8 @@ function renderDashboard() {
   const allTotals = totals();
   const goalPercent = Math.min((periodTotals.receitas / settings.goal) * 100, 100);
 
-  $("#db-vendas").textContent = periodTotals.vendas;
   $("#db-receitas").textContent = money(periodTotals.receitas);
+  $("#db-bruto").textContent = money(periodTotals.receitasBrutas);
   $("#db-taxas").textContent = money(periodTotals.taxas);
   $("#db-ticket").textContent = money(periodTotals.ticket);
 
@@ -803,21 +738,16 @@ function renderDashboard() {
   $("#goal-progress").style.width = `${goalPercent}%`;
   $("#goal-percent").textContent = `${percent(goalPercent)} da meta atingida`;
 
-  $("#card-fat-mensal").textContent = money(periodTotals.receitas);
-  $("#card-fat-bruto").textContent = money(allTotals.receitasBrutas);
-  $("#card-taxas").textContent = money(allTotals.taxas);
-  $("#card-saldo-mensal").textContent = money(periodTotals.lucro);
-  $("#card-lucro-real").textContent = money(allTotals.lucro);
-  $("#card-roi").textContent = percent(allTotals.roi);
-
   renderInvestmentList();
+
+  return allTotals;
 }
 
 function renderFaturamento() {
   const total = totals();
 
   $("#ft-receitas").textContent = money(total.receitas);
-  $("#ft-despesas").textContent = money(total.despesas);
+  $("#ft-bruto").textContent = money(total.receitasBrutas);
   $("#ft-taxas").textContent = money(total.taxas);
   $("#ft-saldo").textContent = money(total.lucro);
 
@@ -827,162 +757,151 @@ function renderFaturamento() {
     list.innerHTML = `
       <div class="empty">
         <strong>Nenhuma movimentação ainda</strong>
-        <p>Clique em “Nova Movimentação” para começar.</p>
+        <p>Crie um fechamento diário ou uma movimentação manual.</p>
       </div>
     `;
     return;
   }
 
-  list.innerHTML = transactions.map((item) => {
-    const grossValue = getGrossValue(item);
-    const feeValue = getFeeValue(item);
-    const netValue = getNetValue(item);
-    const adFeePercent = Number(item.adFeePercent || 0);
-    const planFeePercent = Number(item.planFeePercent || 0);
-    const totalFeePercent = Number(item.totalFeePercent || item.feePercent || 0);
+  list.innerHTML = transactions.map(renderTransactionRow).join("");
+}
 
-    return `
-      <div class="item-row">
-        <div>
-          <strong>${escapeHTML(item.desc)}</strong>
-          <small>${escapeHTML(item.category)} • ${formatDate(item.date)}</small>
+function renderTransactionRow(item) {
+  const gross = getGrossValue(item);
+  const net = getNetValue(item);
+  const fee = getFeeValue(item);
+  const feePercent = Number(item.totalFeePercent || 0);
+  const countText = item.salesCount ? ` • ${item.salesCount} venda(s)` : "";
 
-          <div class="meta-line">
-            <span>Bruto: ${money(grossValue)}</span>
-            <span>Taxa anúncio: ${percent(adFeePercent)}</span>
-            <span>Taxa plano: ${percent(planFeePercent)}</span>
-            <span>Total: ${percent(totalFeePercent)}</span>
-            <span>Desconto: ${money(feeValue)}</span>
-            <span>Líquido: ${money(netValue)}</span>
-          </div>
+  return `
+    <div class="item-row">
+      <div>
+        <strong>${escapeHTML(item.desc || item.category)}</strong>
+        <small>${escapeHTML(item.platform || item.category || "")} • ${formatDate(item.date)}${countText}</small>
+        <div class="meta-line">
+          <span>Bruto: ${money(gross)}</span>
+          <span>Líquido: ${money(net)}</span>
+          <span>Taxa: ${money(fee)}</span>
+          <span>${percent(feePercent)}</span>
+          ${item.note ? `<span>Obs: ${escapeHTML(item.note)}</span>` : ""}
         </div>
-
-        <span class="badge ${item.type === "despesa" ? "red" : ""}">
-          ${item.type}
-        </span>
-
-        <strong>${money(netValue)}</strong>
-
-        <button class="icon-btn" data-delete-transaction="${item.id}" title="Excluir movimentação">
-          ×
-        </button>
       </div>
-    `;
-  }).join("");
+
+      <strong>${item.type === "despesa" ? "-" : ""}${money(net)}</strong>
+
+      <button class="icon-btn" data-delete-transaction="${item.id}" title="Excluir">
+        ×
+      </button>
+    </div>
+  `;
 }
 
 function renderStock() {
-  const announced = stock.filter((item) => item.status === "Anunciado").length;
+  const statusFilter = $("#stock-status-filter").value;
+  const categoryFilter = $("#stock-category-filter").value;
+  const search = $("#stock-search").value.toLowerCase().trim();
 
-  const sold = stock.filter((item) => {
-    return item.status === "Vendido" || item.status === "Entregue";
-  }).length;
+  let filtered = [...stock];
 
-  const potential = stock
-    .filter((item) => item.status !== "Vendido" && item.status !== "Entregue")
-    .reduce((sum, item) => sum + Number(item.price || 0), 0);
+  if (statusFilter !== "all") {
+    filtered = filtered.filter((item) => item.status === statusFilter);
+  }
 
-  $("#st-total").textContent = stock.length;
-  $("#st-anunciados").textContent = announced;
-  $("#st-vendidos").textContent = sold;
+  if (categoryFilter !== "all") {
+    filtered = filtered.filter((item) => item.category === categoryFilter);
+  }
+
+  if (search) {
+    filtered = filtered.filter((item) => {
+      return `${item.name} ${item.game} ${item.category} ${item.note}`.toLowerCase().includes(search);
+    });
+  }
+
+  const active = stock.filter((item) => !["Vendida", "Entregue"].includes(item.status));
+  const potential = active.reduce((sum, item) => sum + Number(item.price || 0), 0);
+
+  $("#st-total").textContent = active.length;
+  $("#st-anunciados").textContent = stock.filter((item) => item.status === "Anunciada").length;
+  $("#st-vendidos").textContent = stock.filter((item) => item.status === "Vendida").length;
   $("#st-potencial").textContent = money(potential);
 
-  const list = $("#stock-list");
+  renderStockColumn("stock-ready", filtered.filter((item) => item.status === "Pronta"));
+  renderStockColumn("stock-farming", filtered.filter((item) => item.status === "Farmando"));
+  renderStockColumn("stock-listed", filtered.filter((item) => item.status === "Anunciada"));
+  renderStockColumn("stock-sold", filtered.filter((item) => item.status === "Vendida" || item.status === "Entregue"));
+  renderStockColumn("stock-problem", filtered.filter((item) => item.status === "Problema"));
+}
 
-  if (!stock.length) {
-    list.innerHTML = `
-      <div class="empty">
-        <strong>Nenhum item cadastrado</strong>
-        <p>Adicione contas, carros, itens e produtos.</p>
-      </div>
-    `;
+function renderStockColumn(elementId, items) {
+  const element = $(`#${elementId}`);
+
+  if (!items.length) {
+    element.innerHTML = `<div class="empty"><p>Vazio</p></div>`;
     return;
   }
 
-  list.innerHTML = stock.map((item) => `
-    <div class="stock-row">
-      <div>
-        <strong>${escapeHTML(item.name)}</strong>
-        <small>${escapeHTML(item.game)}</small>
-      </div>
+  element.innerHTML = items.map((item) => `
+    <div class="stock-card">
+      <h4>${escapeHTML(item.name)}</h4>
+      <p>${escapeHTML(item.game || "")} • ${escapeHTML(item.category || "")}</p>
+      <p>${escapeHTML(item.platform || "")}</p>
+      <p>Custo: ${money(item.cost)} • Preço: ${money(item.price)}</p>
+      ${item.note ? `<p>Obs: ${escapeHTML(item.note)}</p>` : ""}
 
-      <div>
-        <small>Custo</small>
-        <strong>${money(item.cost)}</strong>
-      </div>
+      <select data-stock-status="${item.id}">
+        ${["Pronta", "Farmando", "Anunciada", "Vendida", "Entregue", "Problema"].map((status) => {
+          return `<option value="${status}" ${item.status === status ? "selected" : ""}>${status}</option>`;
+        }).join("")}
+      </select>
 
-      <div>
-        <small>Preço</small>
-        <strong>${money(item.price)}</strong>
+      <div class="stock-actions">
+        <button class="ghost" data-edit-stock="${item.id}">Editar</button>
+        <button class="icon-btn" data-delete-stock="${item.id}">×</button>
       </div>
-
-      <div>
-        <small>Lucro previsto</small>
-        <strong>${money(Number(item.price || 0) - Number(item.cost || 0))}</strong>
-      </div>
-
-      <button class="icon-btn" data-delete-stock="${item.id}" title="Excluir item">
-        ×
-      </button>
     </div>
   `).join("");
 }
 
 function renderInvestments() {
+  const total = totals();
   const invested = transactions
     .filter((item) => item.type === "despesa" && item.category === "Investimento")
     .reduce((sum, item) => sum + getNetValue(item), 0);
 
-  const retorno = transactions
-    .filter((item) => item.type === "receita")
-    .reduce((sum, item) => sum + getNetValue(item), 0);
+  const roi = invested ? ((total.receitas - invested) / invested) * 100 : 0;
 
   $("#inv-total").textContent = money(invested);
-  $("#inv-retorno").textContent = money(retorno);
-  $("#inv-saldo").textContent = money(retorno - invested);
+  $("#inv-retorno").textContent = money(total.receitas);
+  $("#inv-saldo").textContent = money(total.receitas - invested);
+  $("#inv-roi").textContent = percent(roi);
+
+  const investments = transactions.filter((item) => item.type === "despesa" && item.category === "Investimento");
+
+  $("#all-investments-list").innerHTML = investments.length ? investments.map(renderTransactionRow).join("") : `
+    <div class="empty">
+      <strong>Nenhum investimento cadastrado</strong>
+      <p>Adicione gastos com contas, anúncios, ferramentas e servidores.</p>
+    </div>
+  `;
 }
 
 function renderInvestmentList() {
-  const investments = transactions.filter((item) => {
-    return item.type === "despesa" && item.category === "Investimento";
-  });
+  const investments = transactions
+    .filter((item) => item.type === "despesa" && item.category === "Investimento")
+    .slice(0, 5);
 
-  const list = $("#investment-list");
-
-  if (!investments.length) {
-    list.innerHTML = `
-      <div class="empty">
-        <p>Você ainda não investiu nada</p>
-      </div>
-    `;
-    return;
-  }
-
-  list.innerHTML = investments.slice(0, 5).map((item) => `
-    <div class="item-row">
-      <div>
-        <strong>${escapeHTML(item.desc)}</strong>
-        <small>${formatDate(item.date)}</small>
-      </div>
-
-      <strong>${money(getNetValue(item))}</strong>
-
-      <button class="icon-btn" data-delete-transaction="${item.id}" title="Excluir movimentação">
-        ×
-      </button>
+  $("#investment-list").innerHTML = investments.length ? investments.map(renderTransactionRow).join("") : `
+    <div class="empty">
+      <p>Nenhum investimento recente.</p>
     </div>
-  `).join("");
+  `;
 }
 
 function renderNotes() {
   const list = $("#notes-list");
 
   if (!notes.length) {
-    list.innerHTML = `
-      <div class="empty">
-        <p>Nenhuma anotação salva ainda.</p>
-      </div>
-    `;
+    list.innerHTML = `<div class="empty"><p>Nenhuma anotação salva ainda.</p></div>`;
     return;
   }
 
@@ -1002,27 +921,18 @@ function renderChart() {
   if (!canvas) return;
 
   const year = new Date().getFullYear();
-
   const receitas = Array(12).fill(0);
   const despesas = Array(12).fill(0);
 
   transactions.forEach((item) => {
     const date = new Date(`${item.date}T00:00:00`);
-
     if (date.getFullYear() !== year) return;
 
-    if (item.type === "receita") {
-      receitas[date.getMonth()] += getNetValue(item);
-    }
-
-    if (item.type === "despesa") {
-      despesas[date.getMonth()] += getNetValue(item);
-    }
+    if (item.type === "receita") receitas[date.getMonth()] += getNetValue(item);
+    if (item.type === "despesa") despesas[date.getMonth()] += getNetValue(item);
   });
 
-  if (monthlyChart) {
-    monthlyChart.destroy();
-  }
+  if (monthlyChart) monthlyChart.destroy();
 
   monthlyChart = new Chart(canvas, {
     type: "line",
@@ -1058,25 +968,75 @@ function renderChart() {
       },
       scales: {
         x: {
-          ticks: {
-            color: "#9a9a9a"
-          },
-          grid: {
-            color: "rgba(255,255,255,.06)"
-          }
+          ticks: { color: "#9a9a9a" },
+          grid: { color: "rgba(255,255,255,.06)" }
         },
         y: {
           ticks: {
             color: "#9a9a9a",
             callback: (value) => money(value)
           },
-          grid: {
-            color: "rgba(255,255,255,.06)"
-          }
+          grid: { color: "rgba(255,255,255,.06)" }
         }
       }
     }
   });
+}
+
+function setupCalculator() {
+  const display = $("#calc-display");
+
+  $("[data-calc]")?.parentElement?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-calc]");
+    if (!button) return;
+    display.value += button.dataset.calc;
+  });
+
+  $("#calc-equals").addEventListener("click", calculateExpression);
+  $("#calc-clear").addEventListener("click", () => display.value = "");
+  $("#calc-back").addEventListener("click", () => display.value = display.value.slice(0, -1));
+
+  display.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      calculateExpression();
+    }
+
+    if (event.key === "Escape") {
+      display.value = "";
+    }
+  });
+
+  $("#calc-real-fee").addEventListener("click", () => {
+    const gross = Number($("#fee-gross").value || 0);
+    const net = Number($("#fee-net").value || 0);
+    const fee = Math.max(gross - net, 0);
+    const feePercent = gross ? (fee / gross) * 100 : 0;
+
+    $("#real-fee-value").textContent = money(fee);
+    $("#real-fee-percent").textContent = percent(feePercent);
+  });
+
+  $("#calc-price-needed").addEventListener("click", () => {
+    const desired = Number($("#desired-net").value || 0);
+    const feePercent = Number($("#desired-fee").value || 0);
+    const price = feePercent >= 100 ? 0 : desired / (1 - feePercent / 100);
+
+    $("#price-needed").textContent = money(price);
+  });
+}
+
+function calculateExpression() {
+  const display = $("#calc-display");
+  const expression = display.value.replace(/,/g, ".").replace(/[^0-9+\-*/().]/g, "");
+
+  if (!expression) return;
+
+  try {
+    display.value = String(Function(`"use strict"; return (${expression})`)());
+  } catch {
+    display.value = "Erro";
+  }
 }
 
 function formatDate(dateString) {
