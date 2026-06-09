@@ -499,6 +499,21 @@ textarea {
   outline: none;
 }
 
+select option {
+  background: #111111;
+  color: #ffffff;
+}
+
+select option:checked {
+  background: #2a2a2a;
+  color: #ffffff;
+}
+
+select option:hover {
+  background: #333333;
+  color: #ffffff;
+}
+
 select:focus,
 input:focus,
 textarea:focus {
@@ -639,6 +654,10 @@ textarea {
   backdrop-filter: blur(18px);
 }
 
+.wide-modal {
+  width: min(920px, 94vw);
+}
+
 .modal::backdrop {
   background: rgba(0,0,0,.72);
   backdrop-filter: blur(5px);
@@ -718,6 +737,48 @@ hr {
   margin: 12px 0;
 }
 
+.bulk-textarea {
+  min-height: 190px;
+  font-family: Consolas, monospace;
+  line-height: 1.5;
+}
+
+.bulk-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.bulk-preview-box {
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 14px;
+  background: rgba(255,255,255,.025);
+}
+
+.bulk-preview {
+  display: grid;
+  gap: 10px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.bulk-preview-item {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: rgba(255,255,255,.04);
+}
+
+.bulk-preview-item strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.bulk-preview-item small {
+  color: var(--muted);
+}
+
 canvas {
   max-height: 330px;
 }
@@ -763,5 +824,9 @@ canvas {
 
   .item-row {
     grid-template-columns: 1fr;
+  }
+
+  .bulk-actions {
+    flex-direction: column;
   }
 }

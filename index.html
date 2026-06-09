@@ -250,7 +250,10 @@
             <p>Controle contas por status, categoria, preço e plataforma.</p>
           </div>
 
-          <button class="primary" id="open-stock-modal">+ Adicionar item</button>
+          <div class="hero-actions">
+            <button class="primary" id="open-stock-modal">+ Adicionar item</button>
+            <button class="ghost" id="open-bulk-stock-modal">+ Importar em massa</button>
+          </div>
         </header>
 
         <div class="cards four">
@@ -307,27 +310,27 @@
         </section>
 
         <section class="stock-board">
-          <div class="stock-column" data-stock-column="Pronta">
+          <div class="stock-column">
             <h3>Prontas</h3>
             <div id="stock-ready" class="stock-column-list"></div>
           </div>
 
-          <div class="stock-column" data-stock-column="Farmando">
+          <div class="stock-column">
             <h3>Farmando</h3>
             <div id="stock-farming" class="stock-column-list"></div>
           </div>
 
-          <div class="stock-column" data-stock-column="Anunciada">
+          <div class="stock-column">
             <h3>Anunciadas</h3>
             <div id="stock-listed" class="stock-column-list"></div>
           </div>
 
-          <div class="stock-column" data-stock-column="Vendida">
+          <div class="stock-column">
             <h3>Vendidas</h3>
             <div id="stock-sold" class="stock-column-list"></div>
           </div>
 
-          <div class="stock-column" data-stock-column="Problema">
+          <div class="stock-column">
             <h3>Problema</h3>
             <div id="stock-problem" class="stock-column-list"></div>
           </div>
@@ -699,6 +702,103 @@
       </label>
 
       <button class="primary full" id="save-stock-btn" type="submit">Salvar item</button>
+    </form>
+  </dialog>
+
+  <dialog id="bulk-stock-modal" class="modal wide-modal">
+    <form method="dialog" id="bulk-stock-form">
+      <div class="modal-head">
+        <div>
+          <h2>Importar estoque em massa</h2>
+          <p>Cole várias contas linha por linha para cadastrar tudo de uma vez.</p>
+        </div>
+        <button type="button" class="close" data-close="bulk-stock-modal">×</button>
+      </div>
+
+      <div class="form-grid">
+        <label>
+          Jogo
+          <select id="bulk-game">
+            <option>Jailbreak</option>
+            <option>Steal a Brainrot</option>
+            <option>MM2</option>
+            <option>Blox Fruits</option>
+            <option>Outro</option>
+          </select>
+        </label>
+
+        <label>
+          Categoria
+          <select id="bulk-category">
+            <option>1M</option>
+            <option>2M</option>
+            <option>3M</option>
+            <option>5M</option>
+            <option>Item</option>
+            <option>Outro</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="form-grid">
+        <label>
+          Status
+          <select id="bulk-status">
+            <option>Pronta</option>
+            <option>Farmando</option>
+            <option>Anunciada</option>
+            <option>Vendida</option>
+            <option>Entregue</option>
+            <option>Problema</option>
+          </select>
+        </label>
+
+        <label>
+          Plataforma
+          <select id="bulk-platform">
+            <option>GGMAX</option>
+            <option>PlayerAuctions</option>
+            <option>Discord</option>
+            <option>Manual</option>
+            <option>Outro</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="form-grid">
+        <label>
+          Preço esperado para cada item
+          <input id="bulk-price" type="number" step="0.01" min="0" placeholder="18.90" />
+        </label>
+
+        <label>
+          Custo para cada item
+          <input id="bulk-cost" type="number" step="0.01" min="0" placeholder="0" />
+        </label>
+      </div>
+
+      <label>
+        Conteúdo
+        <textarea id="bulk-content" class="bulk-textarea" placeholder="jailbrkcnt10 : 141481yfbh12&#10;lucaszinnk7 : 2u980u9812bn1&#10;DarkRunnerXn : Vn4rT81zP6"></textarea>
+      </label>
+
+      <div class="bulk-actions">
+        <button type="button" class="ghost" id="preview-bulk-stock">Aplicar separação</button>
+        <button type="button" class="ghost danger" id="clear-bulk-stock">Limpar</button>
+      </div>
+
+      <div class="bulk-preview-box">
+        <div class="panel-title">
+          <h3>Prévia</h3>
+          <span id="bulk-count">0 item(s)</span>
+        </div>
+
+        <div id="bulk-preview" class="bulk-preview"></div>
+      </div>
+
+      <button class="primary full" id="save-bulk-stock-btn" type="submit">
+        Salvar todos no estoque
+      </button>
     </form>
   </dialog>
 

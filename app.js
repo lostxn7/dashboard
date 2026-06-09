@@ -265,6 +265,11 @@ function setupModals() {
     $("#stock-modal").showModal();
   });
 
+  $("#open-bulk-stock-modal").addEventListener("click", () => {
+    $("#bulk-stock-modal").showModal();
+    renderBulkPreview([]);
+  });
+
   $("#open-investment-modal").addEventListener("click", () => {
     $("#investment-date").value = today;
     $("#investment-modal").showModal();
@@ -286,6 +291,17 @@ function setupForms() {
   $("#transaction-form").addEventListener("submit", saveManualTransaction);
   $("#stock-form").addEventListener("submit", saveStockItem);
   $("#investment-form").addEventListener("submit", saveInvestment);
+  $("#bulk-stock-form").addEventListener("submit", saveBulkStock);
+
+  $("#preview-bulk-stock").addEventListener("click", () => {
+    const items = parseBulkStock();
+    renderBulkPreview(items);
+  });
+
+  $("#clear-bulk-stock").addEventListener("click", () => {
+    $("#bulk-content").value = "";
+    renderBulkPreview([]);
+  });
 
   $("#add-note").addEventListener("click", saveNote);
 
@@ -316,8 +332,6 @@ function setupForms() {
 
     await deleteDoc(doc(db, "transactions", button.dataset.deleteTransaction));
   });
-
-  $("#stock-ready, #stock-farming, #stock-listed, #stock-sold, #stock-problem").forEach?.(() => {});
 
   document.addEventListener("click", handleGlobalClicks);
   document.addEventListener("change", handleGlobalChanges);
@@ -512,6 +526,67 @@ async function saveStockItem(event) {
   }
 }
 
+async function saveBulkStock(event) {
+  event.preventDefault();
+
+  if (saving) return;
+
+  const items = parseBulkStock();
+
+  if (!items.length) {
+    alert("Cole pelo menos uma conta no campo de conteúdo.");
+    return;
+  }
+
+  if (!confirm(`Cadastrar ${items.length} item(s) no estoque?`)) return;
+
+  saving = true;
+
+  const button = $("#save-bulk-stock-btn");
+  button.disabled = true;
+  button.textContent = "Salvando...";
+
+  try {
+    const game = $("#bulk-game").value;
+    const category = $("#bulk-category").value;
+    const status = $("#bulk-status").value;
+    const platform = $("#bulk-platform").value;
+    const price = Number($("#bulk-price").value || 0);
+    const cost = Number($("#bulk-cost").value || 0);
+
+    const promises = items.map((item) => {
+      return addDoc(collection(db, "stock"), {
+        name: item.name,
+        game,
+        category,
+        status,
+        platform,
+        cost,
+        price,
+        note: item.note,
+        raw: item.raw,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+    });
+
+    await Promise.all(promises);
+
+    $("#bulk-content").value = "";
+    renderBulkPreview([]);
+    $("#bulk-stock-modal").close();
+
+    alert(`${items.length} item(s) cadastrados com sucesso.`);
+  } catch (error) {
+    console.error(error);
+    alert("Erro ao importar estoque.");
+  } finally {
+    saving = false;
+    button.disabled = false;
+    button.textContent = "Salvar todos no estoque";
+  }
+}
+
 async function saveInvestment(event) {
   event.preventDefault();
 
@@ -564,6 +639,55 @@ async function saveNote() {
 
   $("#note-title").value = "";
   $("#note-text").value = "";
+}
+
+function parseBulkStock() {
+  const content = $("#bulk-content").value.trim();
+
+  if (!content) return [];
+
+  return content
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const cleanLine = line.replace(/\s+/g, " ");
+
+      let name = cleanLine;
+      let note = "";
+
+      if (cleanLine.includes(":")) {
+        const parts = cleanLine.split(":");
+        name = parts[0].trim();
+        note = parts.slice(1).join(":").trim();
+      }
+
+      return {
+        name,
+        note,
+        raw: line
+      };
+    });
+}
+
+function renderBulkPreview(items) {
+  $("#bulk-count").textContent = `${items.length} item(s)`;
+
+  if (!items.length) {
+    $("#bulk-preview").innerHTML = `
+      <div class="empty">
+        <p>Nenhum item separado ainda.</p>
+      </div>
+    `;
+    return;
+  }
+
+  $("#bulk-preview").innerHTML = items.map((item, index) => `
+    <div class="bulk-preview-item">
+      <strong>Item #${index + 1}: ${escapeHTML(item.name)}</strong>
+      <small>${item.note ? `Obs: ${escapeHTML(item.note)}` : "Sem observação"}</small>
+    </div>
+  `).join("");
 }
 
 async function deleteCollection(collectionName) {
@@ -725,7 +849,6 @@ function renderOverview() {
 function renderDashboard() {
   const period = selectedPeriodTransactions();
   const periodTotals = totals(period);
-  const allTotals = totals();
   const goalPercent = Math.min((periodTotals.receitas / settings.goal) * 100, 100);
 
   $("#db-receitas").textContent = money(periodTotals.receitas);
@@ -739,8 +862,6 @@ function renderDashboard() {
   $("#goal-percent").textContent = `${percent(goalPercent)} da meta atingida`;
 
   renderInvestmentList();
-
-  return allTotals;
 }
 
 function renderFaturamento() {
