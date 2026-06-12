@@ -48,17 +48,27 @@ const money = (value) => Number(value || 0).toLocaleString("pt-BR", {
 
 const percent = (value) => `${Number(value || 0).toFixed(1)}%`;
 
+const todayISO = () => new Date().toISOString().slice(0, 10);
+
 let transactions = [];
 let stock = [];
 let notes = [];
 let settings = {
   name: "JH Store",
-  goal: 5000
+  goal: 5000,
+  grid: true,
+  gridOpacity: 18
 };
 
-let monthlyChart;
+let mainChart = null;
+let investmentChart = null;
 let unsubscribers = [];
 let saving = false;
+let stockPage = 1;
+let stockSort = { key: "createdAt", direction: "desc" };
+let lastStockRows = [];
+
+const STOCK_PAGE_SIZE = 8;
 
 const months = [
   "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
@@ -71,8 +81,10 @@ document.addEventListener("DOMContentLoaded", () => {
   setupFilters();
   setupModals();
   setupForms();
-  setupStockFilters();
+  setupStockControls();
+  setupFinanceControls();
   setupCalculator();
+  setupSettingsTabs();
   listenAuth();
 });
 
@@ -111,8 +123,6 @@ function listenAuth() {
     }
 
     $("#user-email").textContent = user.email;
-    $("#welcome-title").textContent = settings.name || "JH Store";
-
     showApp();
     await ensureDefaultSettings();
     startFirestoreListeners();
@@ -121,7 +131,6 @@ function listenAuth() {
 
 async function isAllowedUser(email) {
   if (!email) return false;
-
   const allowedDoc = await getDoc(doc(db, "allowedUsers", email));
   return allowedDoc.exists();
 }
@@ -145,6 +154,8 @@ async function ensureDefaultSettings() {
     await setDoc(settingsRef, {
       name: "JH Store",
       goal: 5000,
+      grid: true,
+      gridOpacity: 18,
       updatedAt: serverTimestamp()
     });
   }
@@ -184,13 +195,17 @@ function startFirestoreListeners() {
 
   unsubscribers.push(onSnapshot(doc(db, "settings", "main"), (snapshot) => {
     if (snapshot.exists()) {
+      const data = snapshot.data();
+
       settings = {
-        name: snapshot.data().name || "JH Store",
-        goal: Number(snapshot.data().goal || 5000)
+        name: data.name || "JH Store",
+        goal: Number(data.goal || 5000),
+        grid: data.grid !== false,
+        gridOpacity: Number(data.gridOpacity ?? 18)
       };
 
-      $("#welcome-title").textContent = settings.name;
       setupSettingsValues();
+      applyAppearance();
       renderAll();
     }
   }));
@@ -225,38 +240,40 @@ function openPage(pageName) {
   });
 
   if (pageName === "dashboard") {
-    setTimeout(renderChart, 60);
+    setTimeout(renderMainChart, 60);
+  }
+
+  if (pageName === "investimentos") {
+    setTimeout(renderInvestmentChart, 60);
   }
 }
 
 function setupFilters() {
   const current = new Date();
+  const year = current.getFullYear();
 
-  $("#month-filter").innerHTML = months.map((m, index) => {
+  $("#dash-month-filter").innerHTML = months.map((m, index) => {
     return `<option value="${index}" ${index === current.getMonth() ? "selected" : ""}>${m}</option>`;
   }).join("");
 
-  const year = current.getFullYear();
-
-  $("#year-filter").innerHTML = [year - 1, year, year + 1].map((y) => {
+  $("#dash-year-filter").innerHTML = [year - 1, year, year + 1].map((y) => {
     return `<option value="${y}" ${y === year ? "selected" : ""}>${y}</option>`;
   }).join("");
 
-  $("#month-filter").addEventListener("change", renderAll);
-  $("#year-filter").addEventListener("change", renderAll);
+  $("#dash-month-filter").addEventListener("change", renderAll);
+  $("#dash-year-filter").addEventListener("change", renderAll);
+  $("#chart-type-filter").addEventListener("change", renderMainChart);
 }
 
 function setupModals() {
-  const today = new Date().toISOString().slice(0, 10);
-
   $("#open-daily-close-modal").addEventListener("click", () => {
-    $("#daily-date").value = today;
+    $("#daily-date").value = todayISO();
     $("#daily-close-modal").showModal();
     updateDailyPreview();
   });
 
   $("#open-transaction-modal").addEventListener("click", () => {
-    $("#tr-date").value = today;
+    $("#tr-date").value = todayISO();
     $("#transaction-modal").showModal();
   });
 
@@ -271,8 +288,12 @@ function setupModals() {
   });
 
   $("#open-investment-modal").addEventListener("click", () => {
-    $("#investment-date").value = today;
+    $("#investment-date").value = todayISO();
     $("#investment-modal").showModal();
+  });
+
+  $("#open-note-modal").addEventListener("click", () => {
+    $("#note-modal").showModal();
   });
 
   $$("[data-close]").forEach((button) => {
@@ -284,6 +305,9 @@ function setupModals() {
   $("#daily-gross").addEventListener("input", updateDailyPreview);
   $("#daily-net").addEventListener("input", updateDailyPreview);
   $("#daily-sales-count").addEventListener("input", updateDailyPreview);
+
+  $("#close-stock-drawer").addEventListener("click", closeStockDrawer);
+  $("#drawer-overlay").addEventListener("click", closeStockDrawer);
 }
 
 function setupForms() {
@@ -292,10 +316,10 @@ function setupForms() {
   $("#stock-form").addEventListener("submit", saveStockItem);
   $("#investment-form").addEventListener("submit", saveInvestment);
   $("#bulk-stock-form").addEventListener("submit", saveBulkStock);
+  $("#note-form").addEventListener("submit", saveNote);
 
   $("#preview-bulk-stock").addEventListener("click", () => {
-    const items = parseBulkStock();
-    renderBulkPreview(items);
+    renderBulkPreview(parseBulkStock());
   });
 
   $("#clear-bulk-stock").addEventListener("click", () => {
@@ -303,49 +327,98 @@ function setupForms() {
     renderBulkPreview([]);
   });
 
-  $("#add-note").addEventListener("click", saveNote);
-
-  $("#clear-transactions").addEventListener("click", async () => {
-    if (!confirm("Apagar todas as movimentações?")) return;
-    await deleteCollection("transactions");
-  });
-
-  $("#clear-stock").addEventListener("click", async () => {
-    if (!confirm("Apagar todo o estoque?")) return;
-    await deleteCollection("stock");
-  });
-
-  $("#transaction-list").addEventListener("click", async (event) => {
-    const button = event.target.closest("[data-delete-transaction]");
-    if (!button) return;
-
-    if (!confirm("Excluir essa movimentação?")) return;
-
-    await deleteDoc(doc(db, "transactions", button.dataset.deleteTransaction));
-  });
-
-  $("#all-investments-list").addEventListener("click", async (event) => {
-    const button = event.target.closest("[data-delete-transaction]");
-    if (!button) return;
-
-    if (!confirm("Excluir esse investimento?")) return;
-
-    await deleteDoc(doc(db, "transactions", button.dataset.deleteTransaction));
-  });
-
   document.addEventListener("click", handleGlobalClicks);
   document.addEventListener("change", handleGlobalChanges);
 
-  $("#goal-select").addEventListener("change", async () => {
-    settings.goal = Number($("#goal-select").value);
-    await saveSettings();
+  $("#save-settings").addEventListener("click", saveSettingsFromForm);
+  $("#clear-cache").addEventListener("click", () => location.reload());
+  $("#export-dashboard-report").addEventListener("click", () => exportCSV("relatorio-dashboard.csv", buildFinanceCSV(transactions)));
+  $("#export-finance-csv").addEventListener("click", () => exportCSV("financeiro.csv", buildFinanceCSV(filteredFinanceRows())));
+}
+
+function setupStockControls() {
+  $("#stock-search").addEventListener("input", () => {
+    stockPage = 1;
+    renderStock();
   });
 
-  $("#save-settings").addEventListener("click", async () => {
-    settings.name = $("#setting-name").value.trim() || "JH Store";
-    settings.goal = Number($("#setting-goal").value || 5000);
-    await saveSettings();
-    alert("Configurações salvas!");
+  $("#stock-status-filter").addEventListener("change", () => {
+    stockPage = 1;
+    renderStock();
+  });
+
+  $("#stock-category-filter").addEventListener("change", () => {
+    stockPage = 1;
+    renderStock();
+  });
+
+  $("#stock-platform-filter").addEventListener("change", () => {
+    stockPage = 1;
+    renderStock();
+  });
+
+  $("#clear-stock-filters").addEventListener("click", () => {
+    $("#stock-search").value = "";
+    $("#stock-status-filter").value = "all";
+    $("#stock-category-filter").value = "all";
+    $("#stock-platform-filter").value = "all";
+    stockPage = 1;
+    renderStock();
+  });
+
+  $("#stock-prev-page").addEventListener("click", () => {
+    if (stockPage > 1) {
+      stockPage--;
+      renderStock();
+    }
+  });
+
+  $("#stock-next-page").addEventListener("click", () => {
+    const totalPages = Math.max(Math.ceil(lastStockRows.length / STOCK_PAGE_SIZE), 1);
+
+    if (stockPage < totalPages) {
+      stockPage++;
+      renderStock();
+    }
+  });
+
+  $$("[data-sort-stock]").forEach((th) => {
+    th.addEventListener("click", () => {
+      const key = th.dataset.sortStock;
+
+      if (stockSort.key === key) {
+        stockSort.direction = stockSort.direction === "asc" ? "desc" : "asc";
+      } else {
+        stockSort = { key, direction: "asc" };
+      }
+
+      renderStock();
+    });
+  });
+}
+
+function setupFinanceControls() {
+  $("#finance-search").addEventListener("input", renderFinance);
+  $("#finance-type-filter").addEventListener("change", renderFinance);
+  $("#finance-platform-filter").addEventListener("change", renderFinance);
+
+  $("#clear-finance-filters").addEventListener("click", () => {
+    $("#finance-search").value = "";
+    $("#finance-type-filter").value = "all";
+    $("#finance-platform-filter").value = "all";
+    renderFinance();
+  });
+}
+
+function setupSettingsTabs() {
+  $$(".settings-tab").forEach((button) => {
+    button.addEventListener("click", () => {
+      $$(".settings-tab").forEach((tab) => tab.classList.remove("active"));
+      $$(".settings-panel").forEach((panel) => panel.classList.remove("active"));
+
+      button.classList.add("active");
+      $(`#settings-${button.dataset.settingsTab}`).classList.add("active");
+    });
   });
 }
 
@@ -361,13 +434,9 @@ async function handleGlobalClicks(event) {
 
     try {
       await navigator.clipboard.writeText(text);
-
       const oldText = copyButton.textContent;
       copyButton.textContent = "Copiado";
-
-      setTimeout(() => {
-        copyButton.textContent = oldText;
-      }, 900);
+      setTimeout(() => copyButton.textContent = oldText, 900);
     } catch (error) {
       console.error(error);
       alert("Não foi possível copiar.");
@@ -378,8 +447,9 @@ async function handleGlobalClicks(event) {
 
   const deleteStockButton = event.target.closest("[data-delete-stock]");
   if (deleteStockButton) {
-    if (!confirm("Excluir esse item do estoque?")) return;
+    if (!confirm("Excluir essa conta do estoque?")) return;
     await deleteDoc(doc(db, "stock", deleteStockButton.dataset.deleteStock));
+    closeStockDrawer();
     return;
   }
 
@@ -390,6 +460,20 @@ async function handleGlobalClicks(event) {
 
     fillStockForm(item);
     $("#stock-modal").showModal();
+    return;
+  }
+
+  const deleteTransactionButton = event.target.closest("[data-delete-transaction]");
+  if (deleteTransactionButton) {
+    if (!confirm("Excluir essa movimentação?")) return;
+    await deleteDoc(doc(db, "transactions", deleteTransactionButton.dataset.deleteTransaction));
+    return;
+  }
+
+  const stockRow = event.target.closest("[data-stock-row]");
+  if (stockRow) {
+    const item = stock.find((stockItem) => stockItem.id === stockRow.dataset.stockRow);
+    if (item) openStockDrawer(item);
   }
 }
 
@@ -398,9 +482,10 @@ async function handleGlobalChanges(event) {
   if (!statusSelect) return;
 
   const id = statusSelect.dataset.stockStatus;
+
   await updateDoc(doc(db, "stock", id), {
     status: statusSelect.value,
-    soldAt: statusSelect.value === "Vendida" ? new Date().toISOString().slice(0, 10) : null,
+    soldAt: statusSelect.value === "Vendida" ? todayISO() : null,
     updatedAt: serverTimestamp()
   });
 }
@@ -486,6 +571,7 @@ async function saveManualTransaction(event) {
       mode: "manual",
       category: $("#tr-category").value,
       desc: $("#tr-desc").value.trim(),
+      platform: $("#tr-category").value === "GGMAX" ? "GGMAX" : "Manual",
       grossValue: gross,
       value: type === "receita" ? net : gross,
       feeValue: fee,
@@ -550,11 +636,11 @@ async function saveStockItem(event) {
     $("#stock-modal").close();
   } catch (error) {
     console.error(error);
-    alert("Erro ao salvar item.");
+    alert("Erro ao salvar conta.");
   } finally {
     saving = false;
     button.disabled = false;
-    button.textContent = "Salvar item";
+    button.textContent = "Salvar conta";
   }
 }
 
@@ -566,11 +652,11 @@ async function saveBulkStock(event) {
   const items = parseBulkStock();
 
   if (!items.length) {
-    alert("Cole pelo menos uma conta no campo de conteúdo.");
+    alert("Cole pelo menos uma conta.");
     return;
   }
 
-  if (!confirm(`Cadastrar ${items.length} item(s) no estoque?`)) return;
+  if (!confirm(`Cadastrar ${items.length} conta(s) no estoque?`)) return;
 
   saving = true;
 
@@ -610,10 +696,10 @@ async function saveBulkStock(event) {
     renderBulkPreview([]);
     $("#bulk-stock-modal").close();
 
-    alert(`${items.length} item(s) cadastrados com sucesso.`);
+    alert(`${items.length} conta(s) cadastradas com sucesso.`);
   } catch (error) {
     console.error(error);
-    alert("Erro ao importar estoque.");
+    alert("Erro ao importar contas.");
   } finally {
     saving = false;
     button.disabled = false;
@@ -638,6 +724,7 @@ async function saveInvestment(event) {
       category: "Investimento",
       investmentType: $("#investment-type").value,
       desc: $("#investment-desc").value.trim(),
+      platform: "Manual",
       grossValue: Number($("#investment-value").value || 0),
       value: Number($("#investment-value").value || 0),
       feeValue: 0,
@@ -658,21 +745,29 @@ async function saveInvestment(event) {
   }
 }
 
-async function saveNote() {
-  const title = $("#note-title").value.trim();
-  const text = $("#note-text").value.trim();
+async function saveNote(event) {
+  event.preventDefault();
 
-  if (!title || !text) return;
+  if (saving) return;
+  saving = true;
 
-  await addDoc(collection(db, "notes"), {
-    title,
-    text,
-    date: new Date().toLocaleDateString("pt-BR"),
-    createdAt: serverTimestamp()
-  });
+  try {
+    await addDoc(collection(db, "notes"), {
+      title: $("#note-title").value.trim(),
+      category: $("#note-category").value,
+      text: $("#note-text").value.trim(),
+      date: new Date().toLocaleDateString("pt-BR"),
+      createdAt: serverTimestamp()
+    });
 
-  $("#note-title").value = "";
-  $("#note-text").value = "";
+    event.target.reset();
+    $("#note-modal").close();
+  } catch (error) {
+    console.error(error);
+    alert("Erro ao salvar anotação.");
+  } finally {
+    saving = false;
+  }
 }
 
 function parseBulkStock() {
@@ -696,28 +791,21 @@ function parseBulkStock() {
         password = parts.slice(1).join(":").trim();
       }
 
-      login = login.trim();
-      password = password.trim();
-
       return {
-        login,
-        password,
-        name: login,
-        note: password ? `Senha: ${password}` : "",
-        raw: password ? `${login}:${password}` : login
+        login: login.trim(),
+        password: password.trim(),
+        note: "",
+        raw: password.trim() ? `${login.trim()}:${password.trim()}` : login.trim()
       };
-    });
+    })
+    .filter((item) => item.login);
 }
 
 function renderBulkPreview(items) {
   $("#bulk-count").textContent = `${items.length} item(s)`;
 
   if (!items.length) {
-    $("#bulk-preview").innerHTML = `
-      <div class="empty">
-        <p>Nenhum item separado ainda.</p>
-      </div>
-    `;
+    $("#bulk-preview").innerHTML = `<div class="empty">Nenhum item separado ainda.</div>`;
     return;
   }
 
@@ -731,50 +819,39 @@ function renderBulkPreview(items) {
         <div class="credential-preview">
           <span>Login</span>
           <code>${escapeHTML(item.login)}</code>
+          <button type="button" class="mini-copy" data-copy="${encodeURIComponent(item.login)}">Copiar</button>
         </div>
 
         <div class="credential-preview">
           <span>Senha</span>
           <code>${escapeHTML(item.password || "Sem senha")}</code>
+          <button type="button" class="mini-copy" data-copy="${encodeURIComponent(item.password)}">Copiar</button>
         </div>
 
         <div class="credential-preview">
           <span>Formato GGMAX</span>
           <code>${escapeHTML(ggmaxFormat)}</code>
+          <button type="button" class="mini-copy" data-copy="${encodeURIComponent(ggmaxFormat)}">Copiar</button>
         </div>
       </div>
     `;
   }).join("");
 }
 
-async function deleteCollection(collectionName) {
-  const snapshot = await getDocs(collection(db, collectionName));
-  const deletions = snapshot.docs.map((docItem) => deleteDoc(doc(db, collectionName, docItem.id)));
-  await Promise.all(deletions);
-}
-
-async function saveSettings() {
-  await setDoc(doc(db, "settings", "main"), {
-    name: settings.name || "JH Store",
-    goal: Number(settings.goal || 5000),
-    updatedAt: serverTimestamp()
-  }, {
-    merge: true
-  });
-}
-
 function resetStockForm() {
-  $("#stock-modal-title").textContent = "Novo item";
+  $("#stock-modal-title").textContent = "Nova conta";
   $("#stock-edit-id").value = "";
   $("#stock-form").reset();
   $("#stock-status").value = "Pronta";
 }
 
 function fillStockForm(item) {
-  $("#stock-modal-title").textContent = "Editar item";
+  const normalized = normalizeStockItem(item);
+
+  $("#stock-modal-title").textContent = "Editar conta";
   $("#stock-edit-id").value = item.id;
-  $("#stock-login").value = item.login || item.name || "";
-  $("#stock-password").value = item.password || "";
+  $("#stock-login").value = normalized.login;
+  $("#stock-password").value = normalized.password;
   $("#stock-name").value = item.name || "";
   $("#stock-game").value = item.game || "Jailbreak";
   $("#stock-category").value = item.category || "Outro";
@@ -785,27 +862,68 @@ function fillStockForm(item) {
   $("#stock-note").value = item.note || "";
 }
 
+function normalizeStockItem(item) {
+  let login = String(item.login || item.name || "").trim();
+  let password = String(item.password || "").trim();
+
+  if (!password && item.raw && String(item.raw).includes(":")) {
+    const parts = String(item.raw).split(":");
+    login = parts[0].trim() || login;
+    password = parts.slice(1).join(":").trim();
+  }
+
+  if (!password && item.note) {
+    const note = String(item.note).trim();
+
+    if (note.toLowerCase().startsWith("senha:")) {
+      password = note.split(":").slice(1).join(":").trim();
+    } else if (!note.includes(" ") && note.length <= 80) {
+      password = note;
+    }
+  }
+
+  const ggmax = password ? `${login}:${password}` : login;
+
+  return {
+    ...item,
+    login,
+    password,
+    ggmax,
+    name: item.name || login,
+    status: item.status || "Pronta",
+    category: item.category || "Outro",
+    platform: item.platform || "GGMAX",
+    price: Number(item.price || 0),
+    cost: Number(item.cost || 0),
+    profit: Number(item.price || 0) - Number(item.cost || 0)
+  };
+}
+
 function setupSettingsValues() {
   $("#setting-name").value = settings.name;
   $("#setting-goal").value = settings.goal;
-
-  const goalSelect = $("#goal-select");
-  const goalValue = String(settings.goal);
-
-  if (![...goalSelect.options].some((option) => option.value === goalValue)) {
-    const option = document.createElement("option");
-    option.value = goalValue;
-    option.textContent = money(settings.goal);
-    goalSelect.appendChild(option);
-  }
-
-  goalSelect.value = goalValue;
+  $("#setting-grid").checked = settings.grid;
+  $("#setting-grid-opacity").value = settings.gridOpacity;
+  $("#dash-goal").textContent = money(settings.goal);
 }
 
-function setupStockFilters() {
-  $("#stock-status-filter").addEventListener("change", renderStock);
-  $("#stock-category-filter").addEventListener("change", renderStock);
-  $("#stock-search").addEventListener("input", renderStock);
+function applyAppearance() {
+  document.body.classList.toggle("grid-off", !settings.grid);
+  document.documentElement.style.setProperty("--grid-opacity", String(settings.gridOpacity / 1000));
+}
+
+async function saveSettingsFromForm() {
+  settings.name = $("#setting-name").value.trim() || "JH Store";
+  settings.goal = Number($("#setting-goal").value || 5000);
+  settings.grid = $("#setting-grid").checked;
+  settings.gridOpacity = Number($("#setting-grid-opacity").value || 18);
+
+  await setDoc(doc(db, "settings", "main"), {
+    ...settings,
+    updatedAt: serverTimestamp()
+  }, { merge: true });
+
+  alert("Configurações salvas!");
 }
 
 function getNetValue(item) {
@@ -860,366 +978,434 @@ function totals(list = transactions) {
 }
 
 function selectedPeriodTransactions() {
-  const month = Number($("#month-filter")?.value ?? new Date().getMonth());
-  const year = Number($("#year-filter")?.value ?? new Date().getFullYear());
+  const month = Number($("#dash-month-filter")?.value ?? new Date().getMonth());
+  const year = Number($("#dash-year-filter")?.value ?? new Date().getFullYear());
 
   return transactions.filter((item) => {
+    if (!item.date) return false;
+    const date = new Date(`${item.date}T00:00:00`);
+    return date.getMonth() === month && date.getFullYear() === year;
+  });
+}
+
+function previousPeriodTransactions() {
+  let month = Number($("#dash-month-filter")?.value ?? new Date().getMonth()) - 1;
+  let year = Number($("#dash-year-filter")?.value ?? new Date().getFullYear());
+
+  if (month < 0) {
+    month = 11;
+    year--;
+  }
+
+  return transactions.filter((item) => {
+    if (!item.date) return false;
     const date = new Date(`${item.date}T00:00:00`);
     return date.getMonth() === month && date.getFullYear() === year;
   });
 }
 
 function renderAll() {
-  renderOverview();
   renderDashboard();
-  renderFaturamento();
+  renderFinance();
   renderStock();
   renderInvestments();
-  renderChart();
-}
-
-function renderOverview() {
-  const total = totals();
-  const activeStock = stock.filter((item) => !["Vendida", "Entregue"].includes(item.status)).length;
-
-  $("#ov-total").textContent = money(total.receitas);
-  $("#ov-vendas").textContent = total.vendas;
-  $("#ov-lucro").textContent = money(total.lucro);
-  $("#ov-estoque").textContent = activeStock;
-  $("#ov-taxa-media").textContent = percent(total.taxaMedia);
-
-  $("#sum-ready").textContent = stock.filter((i) => i.status === "Pronta").length;
-  $("#sum-farming").textContent = stock.filter((i) => i.status === "Farmando").length;
-  $("#sum-listed").textContent = stock.filter((i) => i.status === "Anunciada").length;
-  $("#sum-sold").textContent = stock.filter((i) => i.status === "Vendida").length;
-
-  const closings = transactions
-    .filter((item) => item.mode === "dailyClose")
-    .slice(0, 5);
-
-  $("#recent-closings").innerHTML = closings.length ? closings.map(renderTransactionRow).join("") : `
-    <div class="empty">
-      <strong>Nenhum fechamento ainda</strong>
-      <p>Use a aba Faturamento para criar seu primeiro fechamento diário.</p>
-    </div>
-  `;
+  renderNotes();
+  renderMainChart();
+  renderInvestmentChart();
 }
 
 function renderDashboard() {
   const period = selectedPeriodTransactions();
-  const periodTotals = totals(period);
-  const goalPercent = Math.min((periodTotals.receitas / settings.goal) * 100, 100);
+  const prev = previousPeriodTransactions();
+  const currentTotals = totals(period);
+  const prevTotals = totals(prev);
+  const goalPercent = Math.min((currentTotals.receitas / settings.goal) * 100, 100);
 
-  $("#db-receitas").textContent = money(periodTotals.receitas);
-  $("#db-bruto").textContent = money(periodTotals.receitasBrutas);
-  $("#db-taxas").textContent = money(periodTotals.taxas);
-  $("#db-ticket").textContent = money(periodTotals.ticket);
+  $("#dash-revenue").textContent = money(currentTotals.receitas);
+  $("#dash-sales").textContent = currentTotals.vendas;
+  $("#dash-ticket").textContent = money(currentTotals.ticket);
+  $("#dash-goal").textContent = money(settings.goal);
+  $("#dash-goal-bar").style.width = `${goalPercent}%`;
+  $("#dash-goal-text").textContent = `${percent(goalPercent)} atingida`;
 
-  $("#goal-current").textContent = money(periodTotals.receitas);
-  $("#goal-target").textContent = money(settings.goal);
-  $("#goal-progress").style.width = `${goalPercent}%`;
-  $("#goal-percent").textContent = `${percent(goalPercent)} da meta atingida`;
+  $("#dash-revenue-delta").textContent = `${deltaText(currentTotals.receitas, prevTotals.receitas)} vs mês anterior`;
+  $("#dash-sales-delta").textContent = `${currentTotals.vendas - prevTotals.vendas >= 0 ? "+" : ""}${currentTotals.vendas - prevTotals.vendas} vs mês anterior`;
+  $("#dash-ticket-delta").textContent = `${deltaText(currentTotals.ticket, prevTotals.ticket)} vs mês anterior`;
 
-  renderInvestmentList();
+  const latestSales = transactions
+    .filter((item) => item.type === "receita")
+    .slice(0, 5);
+
+  $("#latest-sales-table").innerHTML = latestSales.length ? latestSales.map((item, index) => `
+    <tr>
+      <td>#${String(1020 + index).padStart(4, "0")}</td>
+      <td>${escapeHTML(item.desc || item.category || "Venda")}</td>
+      <td>${escapeHTML(item.platform || item.category || "Manual")}</td>
+      <td>${money(getNetValue(item))}</td>
+      <td>${formatDateTime(item.date)}</td>
+      <td><span class="status-badge status-pronta">Concluída</span></td>
+    </tr>
+  `).join("") : emptyTableRow(6, "Nenhuma venda registrada.");
 }
 
-function renderFaturamento() {
-  const total = totals();
-
-  $("#ft-receitas").textContent = money(total.receitas);
-  $("#ft-bruto").textContent = money(total.receitasBrutas);
-  $("#ft-taxas").textContent = money(total.taxas);
-  $("#ft-saldo").textContent = money(total.lucro);
-
-  const list = $("#transaction-list");
-
-  if (!transactions.length) {
-    list.innerHTML = `
-      <div class="empty">
-        <strong>Nenhuma movimentação ainda</strong>
-        <p>Crie um fechamento diário ou uma movimentação manual.</p>
-      </div>
-    `;
-    return;
-  }
-
-  list.innerHTML = transactions.map(renderTransactionRow).join("");
+function deltaText(current, previous) {
+  if (!previous) return "+0%";
+  const value = ((current - previous) / previous) * 100;
+  return `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
 }
 
-function renderTransactionRow(item) {
-  const gross = getGrossValue(item);
-  const net = getNetValue(item);
-  const fee = getFeeValue(item);
-  const feePercent = Number(item.totalFeePercent || 0);
-  const countText = item.salesCount ? ` • ${item.salesCount} venda(s)` : "";
+function renderFinance() {
+  const rows = filteredFinanceRows();
+  const total = totals(transactions);
 
-  return `
-    <div class="item-row">
-      <div>
-        <strong>${escapeHTML(item.desc || item.category)}</strong>
-        <small>${escapeHTML(item.platform || item.category || "")} • ${formatDate(item.date)}${countText}</small>
-        <div class="meta-line">
-          <span>Bruto: ${money(gross)}</span>
-          <span>Líquido: ${money(net)}</span>
-          <span>Taxa: ${money(fee)}</span>
-          <span>${percent(feePercent)}</span>
-          ${item.note ? `<span>Obs: ${escapeHTML(item.note)}</span>` : ""}
-        </div>
-      </div>
+  $("#fin-revenue").textContent = money(total.receitas);
+  $("#fin-gross").textContent = money(total.receitasBrutas);
+  $("#fin-fees").textContent = money(total.taxas);
+  $("#fin-balance").textContent = money(total.lucro);
 
-      <strong>${item.type === "despesa" ? "-" : ""}${money(net)}</strong>
+  $("#finance-table").innerHTML = rows.length ? rows.map((item) => `
+    <tr>
+      <td><span class="status-badge ${item.type === "receita" ? "status-pronta" : "status-problema"}">${item.type}</span></td>
+      <td>${escapeHTML(item.desc || item.category || "")}</td>
+      <td>${money(getGrossValue(item))}</td>
+      <td>${money(getNetValue(item))}</td>
+      <td>${money(getFeeValue(item))}</td>
+      <td>${formatDateTime(item.date)}</td>
+      <td><button class="icon-btn" data-delete-transaction="${item.id}">×</button></td>
+    </tr>
+  `).join("") : emptyTableRow(7, "Nenhuma movimentação encontrada.");
+}
 
-      <button class="icon-btn" data-delete-transaction="${item.id}" title="Excluir">
-        ×
-      </button>
-    </div>
-  `;
+function filteredFinanceRows() {
+  const search = $("#finance-search")?.value.toLowerCase().trim() || "";
+  const type = $("#finance-type-filter")?.value || "all";
+  const platform = $("#finance-platform-filter")?.value || "all";
+
+  return transactions.filter((item) => {
+    const text = `${item.type} ${item.desc} ${item.category} ${item.platform} ${item.note}`.toLowerCase();
+    const matchesSearch = !search || text.includes(search);
+    const matchesType = type === "all" || item.type === type;
+    const matchesPlatform = platform === "all" || item.platform === platform || item.category === platform;
+
+    return matchesSearch && matchesType && matchesPlatform;
+  });
 }
 
 function renderStock() {
-  const statusFilter = $("#stock-status-filter").value;
-  const categoryFilter = $("#stock-category-filter").value;
-  const search = $("#stock-search").value.toLowerCase().trim();
+  let rows = stock.map(normalizeStockItem);
+  const search = $("#stock-search")?.value.toLowerCase().trim() || "";
+  const status = $("#stock-status-filter")?.value || "all";
+  const category = $("#stock-category-filter")?.value || "all";
+  const platform = $("#stock-platform-filter")?.value || "all";
 
-  let filtered = [...stock];
+  rows = rows.filter((item) => {
+    const text = `${item.name} ${item.login} ${item.password} ${item.game} ${item.category} ${item.platform} ${item.note}`.toLowerCase();
 
-  if (statusFilter !== "all") {
-    filtered = filtered.filter((item) => item.status === statusFilter);
-  }
+    return (!search || text.includes(search)) &&
+      (status === "all" || item.status === status) &&
+      (category === "all" || item.category === category) &&
+      (platform === "all" || item.platform === platform);
+  });
 
-  if (categoryFilter !== "all") {
-    filtered = filtered.filter((item) => item.category === categoryFilter);
-  }
+  rows.sort((a, b) => compareStock(a, b, stockSort.key, stockSort.direction));
 
-  if (search) {
-    filtered = filtered.filter((item) => {
-      return `${item.name} ${item.login} ${item.password} ${item.game} ${item.category} ${item.note}`.toLowerCase().includes(search);
-    });
-  }
+  lastStockRows = rows;
+  const totalPages = Math.max(Math.ceil(rows.length / STOCK_PAGE_SIZE), 1);
+  stockPage = Math.min(stockPage, totalPages);
 
-  const active = stock.filter((item) => !["Vendida", "Entregue"].includes(item.status));
-  const potential = active.reduce((sum, item) => sum + Number(item.price || 0), 0);
+  const start = (stockPage - 1) * STOCK_PAGE_SIZE;
+  const pageRows = rows.slice(start, start + STOCK_PAGE_SIZE);
 
-  $("#st-total").textContent = active.length;
-  $("#st-anunciados").textContent = stock.filter((item) => item.status === "Anunciada").length;
-  $("#st-vendidos").textContent = stock.filter((item) => item.status === "Vendida").length;
-  $("#st-potencial").textContent = money(potential);
+  $("#stock-table").innerHTML = pageRows.length ? pageRows.map((item) => `
+    <tr data-stock-row="${item.id}">
+      <td>
+        <div class="account-cell">
+          <strong>${escapeHTML(item.name || item.login)}</strong>
+          <small>${escapeHTML(item.login)}</small>
+        </div>
+      </td>
+      <td>${statusBadge(item.status)}</td>
+      <td>${escapeHTML(item.category)}</td>
+      <td>${escapeHTML(item.platform)}</td>
+      <td>${money(item.price)}</td>
+      <td>${money(item.cost)}</td>
+      <td>${money(item.profit)}</td>
+      <td>${formatDateTime(item.createdAt || item.date)}</td>
+    </tr>
+  `).join("") : emptyTableRow(8, "Nenhuma conta encontrada.");
 
-  renderStockColumn("stock-ready", filtered.filter((item) => item.status === "Pronta"));
-  renderStockColumn("stock-farming", filtered.filter((item) => item.status === "Farmando"));
-  renderStockColumn("stock-listed", filtered.filter((item) => item.status === "Anunciada"));
-  renderStockColumn("stock-sold", filtered.filter((item) => item.status === "Vendida" || item.status === "Entregue"));
-  renderStockColumn("stock-problem", filtered.filter((item) => item.status === "Problema"));
+  $("#stock-page-info").textContent = `${stockPage} / ${totalPages}`;
 }
 
-function renderStockColumn(elementId, items) {
-  const element = $(`#${elementId}`);
+function compareStock(a, b, key, direction) {
+  const dir = direction === "asc" ? 1 : -1;
 
-  if (!items.length) {
-    element.innerHTML = `<div class="empty"><p>Vazio</p></div>`;
-    return;
+  let av = a[key];
+  let bv = b[key];
+
+  if (key === "createdAt") {
+    av = dateValue(a.createdAt || a.date);
+    bv = dateValue(b.createdAt || b.date);
   }
 
-  element.innerHTML = items.map((item) => {
-    const login = String(item.login || item.name || "").trim();
-    const password = String(item.password || "").trim();
-    const ggmaxFormat = password ? `${login}:${password}` : login;
+  if (typeof av === "number" || typeof bv === "number") {
+    return (Number(av || 0) - Number(bv || 0)) * dir;
+  }
 
-    return `
-      <div class="stock-card">
-        <div class="stock-card-head">
-          <h4>${escapeHTML(login)}</h4>
-          <span>${escapeHTML(item.category || "")}</span>
-        </div>
+  return String(av || "").localeCompare(String(bv || "")) * dir;
+}
 
-        <div class="credential-box">
-          <div>
-            <small>Login</small>
-            <code>${escapeHTML(login)}</code>
-          </div>
-          <button class="mini-copy" data-copy="${encodeURIComponent(login)}">Copiar</button>
-        </div>
+function statusBadge(status) {
+  const normalized = String(status || "Pronta");
+  const className = `status-${normalized.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")}`;
 
-        <div class="credential-box">
-          <div>
-            <small>Senha</small>
-            <code>${escapeHTML(password || "Sem senha")}</code>
-          </div>
-          <button class="mini-copy" data-copy="${encodeURIComponent(password)}">Copiar</button>
-        </div>
+  return `<span class="status-badge ${className}">${escapeHTML(normalized)}</span>`;
+}
 
-        <div class="credential-box">
-          <div>
-            <small>Formato GGMAX</small>
-            <code>${escapeHTML(ggmaxFormat)}</code>
-          </div>
-          <button class="mini-copy" data-copy="${encodeURIComponent(ggmaxFormat)}">Copiar</button>
-        </div>
+function openStockDrawer(item) {
+  const data = normalizeStockItem(item);
 
-        <p>${escapeHTML(item.game || "")} • ${escapeHTML(item.platform || "")}</p>
-        <p>Custo: ${money(item.cost)} • Preço: ${money(item.price)}</p>
-        ${item.note ? `<p>Obs: ${escapeHTML(item.note)}</p>` : ""}
+  $("#drawer-title").textContent = data.name || data.login;
 
-        <select data-stock-status="${item.id}">
-          ${["Pronta", "Farmando", "Anunciada", "Vendida", "Entregue", "Problema"].map((status) => {
-            return `<option value="${status}" ${item.status === status ? "selected" : ""}>${status}</option>`;
-          }).join("")}
-        </select>
+  $("#drawer-content").innerHTML = `
+    <div class="drawer-section">
+      <h3>Acesso</h3>
 
-        <div class="stock-actions">
-          <button class="ghost" data-edit-stock="${item.id}">Editar</button>
-          <button class="icon-btn" data-delete-stock="${item.id}">×</button>
-        </div>
+      <div class="drawer-row">
+        <span>Login</span>
+        <code>${escapeHTML(data.login)}</code>
+        <button class="mini-copy" data-copy="${encodeURIComponent(data.login)}">Copiar</button>
       </div>
-    `;
-  }).join("");
+
+      <div class="drawer-row">
+        <span>Senha</span>
+        <code>${escapeHTML(data.password || "Sem senha")}</code>
+        <button class="mini-copy" data-copy="${encodeURIComponent(data.password)}">Copiar</button>
+      </div>
+
+      <div class="drawer-row">
+        <span>GGMAX</span>
+        <code>${escapeHTML(data.ggmax)}</code>
+        <button class="mini-copy" data-copy="${encodeURIComponent(data.ggmax)}">Copiar</button>
+      </div>
+    </div>
+
+    <div class="drawer-section">
+      <h3>Informações</h3>
+      <div class="drawer-meta">
+        <div><span>Status</span><strong>${statusBadge(data.status)}</strong></div>
+        <div><span>Categoria</span><strong>${escapeHTML(data.category)}</strong></div>
+        <div><span>Plataforma</span><strong>${escapeHTML(data.platform)}</strong></div>
+        <div><span>Jogo</span><strong>${escapeHTML(data.game || "")}</strong></div>
+        <div><span>Valor</span><strong>${money(data.price)}</strong></div>
+        <div><span>Custo</span><strong>${money(data.cost)}</strong></div>
+        <div><span>Lucro</span><strong>${money(data.profit)}</strong></div>
+        <div><span>Criada em</span><strong>${formatDateTime(data.createdAt || data.date)}</strong></div>
+      </div>
+    </div>
+
+    <div class="drawer-section">
+      <h3>Observações</h3>
+      <p class="muted">${escapeHTML(data.note || "Nenhuma observação.")}</p>
+    </div>
+
+    <div class="drawer-section">
+      <h3>Status</h3>
+      <select data-stock-status="${data.id}">
+        ${["Pronta", "Farmando", "Anunciada", "Vendida", "Entregue", "Problema"].map((status) => {
+          return `<option value="${status}" ${data.status === status ? "selected" : ""}>${status}</option>`;
+        }).join("")}
+      </select>
+    </div>
+
+    <div class="head-actions">
+      <button class="btn btn-soft" data-edit-stock="${data.id}">Editar</button>
+      <button class="btn btn-soft btn-danger" data-delete-stock="${data.id}">Excluir</button>
+    </div>
+  `;
+
+  $("#stock-drawer").classList.add("open");
+  $("#drawer-overlay").classList.add("open");
+}
+
+function closeStockDrawer() {
+  $("#stock-drawer").classList.remove("open");
+  $("#drawer-overlay").classList.remove("open");
 }
 
 function renderInvestments() {
-  const total = totals();
-  const invested = transactions
-    .filter((item) => item.type === "despesa" && item.category === "Investimento")
-    .reduce((sum, item) => sum + getNetValue(item), 0);
-
-  const roi = invested ? ((total.receitas - invested) / invested) * 100 : 0;
+  const total = totals(transactions);
+  const investments = transactions.filter((item) => item.type === "despesa" && item.category === "Investimento");
+  const invested = investments.reduce((sum, item) => sum + getNetValue(item), 0);
+  const result = total.receitas - invested;
+  const roi = invested ? (result / invested) * 100 : 0;
 
   $("#inv-total").textContent = money(invested);
-  $("#inv-retorno").textContent = money(total.receitas);
-  $("#inv-saldo").textContent = money(total.receitas - invested);
+  $("#inv-revenue").textContent = money(total.receitas);
+  $("#inv-result").textContent = money(result);
   $("#inv-roi").textContent = percent(roi);
 
-  const investments = transactions.filter((item) => item.type === "despesa" && item.category === "Investimento");
-
-  $("#all-investments-list").innerHTML = investments.length ? investments.map(renderTransactionRow).join("") : `
-    <div class="empty">
-      <strong>Nenhum investimento cadastrado</strong>
-      <p>Adicione gastos com contas, anúncios, ferramentas e servidores.</p>
-    </div>
-  `;
-}
-
-function renderInvestmentList() {
-  const investments = transactions
-    .filter((item) => item.type === "despesa" && item.category === "Investimento")
-    .slice(0, 5);
-
-  $("#investment-list").innerHTML = investments.length ? investments.map(renderTransactionRow).join("") : `
-    <div class="empty">
-      <p>Nenhum investimento recente.</p>
-    </div>
-  `;
+  $("#investment-table").innerHTML = investments.length ? investments.map((item) => `
+    <tr>
+      <td>${escapeHTML(item.investmentType || "Investimento")}</td>
+      <td>${escapeHTML(item.desc || "")}</td>
+      <td>${money(getNetValue(item))}</td>
+      <td>${formatDateTime(item.date)}</td>
+      <td><button class="icon-btn" data-delete-transaction="${item.id}">×</button></td>
+    </tr>
+  `).join("") : emptyTableRow(5, "Nenhum investimento cadastrado.");
 }
 
 function renderNotes() {
-  const list = $("#notes-list");
+  const defaults = [
+    { title: "Estratégias de venda", category: "Estratégias", text: "Focar em contas com boa margem e atualizar anúncios com frequência.", date: "" },
+    { title: "Contas para anunciar", category: "Contas para anunciar", text: "Use o estoque para separar contas prontas e anunciadas.", date: "" },
+    { title: "Metas", category: "Metas", text: `Meta mensal atual: ${money(settings.goal)}.`, date: "" }
+  ];
 
-  if (!notes.length) {
-    list.innerHTML = `<div class="empty"><p>Nenhuma anotação salva ainda.</p></div>`;
-    return;
-  }
+  const list = notes.length ? notes : defaults;
 
-  list.innerHTML = notes.map((note) => `
-    <div class="item-row">
-      <div>
-        <strong>${escapeHTML(note.title)}</strong>
-        <small>${note.date || ""}</small>
-        <p>${escapeHTML(note.text)}</p>
-      </div>
-    </div>
+  $("#notes-grid").innerHTML = list.map((note) => `
+    <article class="note-card">
+      <span class="note-category">${escapeHTML(note.category || "Anotação")}</span>
+      <h3>${escapeHTML(note.title)}</h3>
+      <p>${escapeHTML(note.text)}</p>
+      <small>${escapeHTML(note.date || new Date().toLocaleDateString("pt-BR"))}</small>
+    </article>
   `).join("");
 }
 
-function renderChart() {
-  const canvas = $("#monthly-chart");
+function renderMainChart() {
+  const canvas = $("#main-chart");
   if (!canvas) return;
 
-  const year = new Date().getFullYear();
-  const receitas = Array(12).fill(0);
-  const despesas = Array(12).fill(0);
+  const year = Number($("#dash-year-filter")?.value ?? new Date().getFullYear());
+  const type = $("#chart-type-filter")?.value || "receita";
+  const data = Array(12).fill(0);
 
   transactions.forEach((item) => {
+    if (!item.date || item.type !== "receita") return;
+
     const date = new Date(`${item.date}T00:00:00`);
     if (date.getFullYear() !== year) return;
 
-    if (item.type === "receita") receitas[date.getMonth()] += getNetValue(item);
-    if (item.type === "despesa") despesas[date.getMonth()] += getNetValue(item);
+    if (type === "receita") data[date.getMonth()] += getNetValue(item);
+    if (type === "bruto") data[date.getMonth()] += getGrossValue(item);
+    if (type === "taxas") data[date.getMonth()] += getFeeValue(item);
   });
 
-  if (monthlyChart) monthlyChart.destroy();
+  if (mainChart) mainChart.destroy();
 
-  monthlyChart = new Chart(canvas, {
+  mainChart = new Chart(canvas, {
     type: "line",
     data: {
       labels: ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"],
       datasets: [
         {
-          label: "Receitas líquidas",
-          data: receitas,
+          label: type === "receita" ? "Receita Líquida" : type === "bruto" ? "Bruto Vendido" : "Taxas Pagas",
+          data,
           borderColor: "#ffffff",
-          backgroundColor: "rgba(255,255,255,.08)",
-          tension: .35,
-          fill: true
-        },
-        {
-          label: "Despesas",
-          data: despesas,
-          borderColor: "#9b9b9b",
           backgroundColor: "rgba(255,255,255,.035)",
+          borderWidth: 1.8,
+          pointRadius: 2,
+          pointHoverRadius: 4,
           tension: .35,
           fill: true
         }
       ]
     },
-    options: {
-      responsive: true,
-      plugins: {
-        legend: {
-          labels: {
-            color: "#d8d8d8"
-          }
-        }
-      },
-      scales: {
-        x: {
-          ticks: { color: "#9a9a9a" },
-          grid: { color: "rgba(255,255,255,.06)" }
-        },
-        y: {
-          ticks: {
-            color: "#9a9a9a",
-            callback: (value) => money(value)
-          },
-          grid: { color: "rgba(255,255,255,.06)" }
-        }
-      }
-    }
+    options: chartOptions()
   });
 }
 
+function renderInvestmentChart() {
+  const canvas = $("#investment-chart");
+  if (!canvas) return;
+
+  const year = new Date().getFullYear();
+  const receitas = Array(12).fill(0);
+  const investimentos = Array(12).fill(0);
+
+  transactions.forEach((item) => {
+    if (!item.date) return;
+
+    const date = new Date(`${item.date}T00:00:00`);
+    if (date.getFullYear() !== year) return;
+
+    if (item.type === "receita") receitas[date.getMonth()] += getNetValue(item);
+    if (item.type === "despesa" && item.category === "Investimento") investimentos[date.getMonth()] += getNetValue(item);
+  });
+
+  if (investmentChart) investmentChart.destroy();
+
+  investmentChart = new Chart(canvas, {
+    type: "line",
+    data: {
+      labels: ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"],
+      datasets: [
+        {
+          label: "Receita Líquida",
+          data: receitas,
+          borderColor: "#ffffff",
+          backgroundColor: "rgba(255,255,255,.035)",
+          borderWidth: 1.8,
+          tension: .35,
+          fill: true
+        },
+        {
+          label: "Investimentos",
+          data: investimentos,
+          borderColor: "#8c8f96",
+          backgroundColor: "rgba(255,255,255,.02)",
+          borderWidth: 1.8,
+          tension: .35,
+          fill: true
+        }
+      ]
+    },
+    options: chartOptions()
+  });
+}
+
+function chartOptions() {
+  return {
+    responsive: true,
+    plugins: {
+      legend: {
+        labels: {
+          color: "#d8d8d8",
+          boxWidth: 18,
+          boxHeight: 2
+        }
+      },
+      tooltip: {
+        backgroundColor: "#111",
+        titleColor: "#fff",
+        bodyColor: "#d8d8d8",
+        borderColor: "rgba(255,255,255,.12)",
+        borderWidth: 1,
+        callbacks: {
+          label: (ctx) => `${ctx.dataset.label}: ${money(ctx.raw)}`
+        }
+      }
+    },
+    scales: {
+      x: {
+        ticks: { color: "#8c8f96" },
+        grid: { color: "rgba(255,255,255,.045)" }
+      },
+      y: {
+        ticks: {
+          color: "#8c8f96",
+          callback: (value) => money(value)
+        },
+        grid: { color: "rgba(255,255,255,.045)" }
+      }
+    }
+  };
+}
+
 function setupCalculator() {
-  const display = $("#calc-display");
-
-  $("[data-calc]")?.parentElement?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-calc]");
-    if (!button) return;
-    display.value += button.dataset.calc;
-  });
-
-  $("#calc-equals").addEventListener("click", calculateExpression);
-  $("#calc-clear").addEventListener("click", () => display.value = "");
-  $("#calc-back").addEventListener("click", () => display.value = display.value.slice(0, -1));
-
-  display.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      calculateExpression();
-    }
-
-    if (event.key === "Escape") {
-      display.value = "";
-    }
-  });
-
   $("#calc-real-fee").addEventListener("click", () => {
     const gross = Number($("#fee-gross").value || 0);
     const net = Number($("#fee-net").value || 0);
@@ -1239,22 +1425,59 @@ function setupCalculator() {
   });
 }
 
-function calculateExpression() {
-  const display = $("#calc-display");
-  const expression = display.value.replace(/,/g, ".").replace(/[^0-9+\-*/().]/g, "");
+function buildFinanceCSV(rows) {
+  const header = ["tipo", "descricao", "plataforma", "bruto", "liquido", "taxa", "data"];
+  const body = rows.map((item) => [
+    item.type,
+    item.desc || item.category || "",
+    item.platform || "",
+    getGrossValue(item),
+    getNetValue(item),
+    getFeeValue(item),
+    item.date || ""
+  ]);
 
-  if (!expression) return;
-
-  try {
-    display.value = String(Function(`"use strict"; return (${expression})`)());
-  } catch {
-    display.value = "Erro";
-  }
+  return [header, ...body]
+    .map((line) => line.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(","))
+    .join("\n");
 }
 
-function formatDate(dateString) {
-  if (!dateString) return "";
-  return new Date(`${dateString}T00:00:00`).toLocaleDateString("pt-BR");
+function exportCSV(filename, content) {
+  const blob = new Blob([content], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = url;
+  link.download = filename;
+  link.click();
+
+  URL.revokeObjectURL(url);
+}
+
+function emptyTableRow(colspan, text) {
+  return `<tr><td colspan="${colspan}" class="empty-row">${text}</td></tr>`;
+}
+
+function formatDateTime(value) {
+  if (!value) return "-";
+
+  if (typeof value === "object" && typeof value.toDate === "function") {
+    return value.toDate().toLocaleString("pt-BR");
+  }
+
+  if (typeof value === "string") {
+    const date = value.includes("T") ? new Date(value) : new Date(`${value}T00:00:00`);
+    if (!Number.isNaN(date.getTime())) return date.toLocaleDateString("pt-BR");
+  }
+
+  return "-";
+}
+
+function dateValue(value) {
+  if (!value) return 0;
+  if (typeof value === "object" && typeof value.toDate === "function") return value.toDate().getTime();
+  const date = new Date(String(value).includes("T") ? value : `${value}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
 }
 
 function escapeHTML(text) {
